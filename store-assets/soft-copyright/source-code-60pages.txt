@@ -1,0 +1,3063 @@
+AIRouter 连接助手软件 V1.0
+源代码（前 30 页 + 后 30 页，每页 50 行）
+
+==== 第 1 页 ====
+import { rcp } from '@kit.RemoteCommunicationKit';
+const DEFAULT_RESUME_CWD: string = '~';
+const OPENCODE_RESUMES_PATH: string = '/api/opencode/resumes';
+export interface LoginRequest {
+  baseUrl: string;
+  registrationCode: string;
+  deviceName: string;
+  deviceId: string;
+  publicKey: string;
+}
+export interface RegisterRequest {
+  baseUrl: string;
+  deviceId: string;
+  publicKey: string;
+  registrationCode: string;
+  deviceName: string;
+}
+export interface RegisterResponse {
+  activationToken: string;
+  challenge: string;
+}
+export interface ActivateRequest {
+  baseUrl: string;
+  deviceId: string;
+  activationToken: string;
+  signedChallenge: string;
+}
+export interface ChallengeRequest {
+  baseUrl: string;
+  deviceId: string;
+}
+export interface ChallengeResponse {
+  nonce: string;
+  expiresAt: string;
+}
+export interface VerifyRequest {
+  baseUrl: string;
+  deviceId: string;
+  nonce: string;
+  signature: string;
+}
+export interface RefreshRequest {
+  baseUrl: string;
+  refreshToken: string;
+}
+export interface RefreshResponse {
+  accessToken: string;
+}
+export interface LogoutRequest {
+  baseUrl: string;
+==== 后段第 1 页 ====
+          .border({ width: 1, color: '#FECACA' })
+          .onClick(() => {
+            this.deleteSelectedConnection();
+          })
+      }
+      .width('100%')
+      .padding({ top: 4 })
+    }
+    .width('100%')
+  }
+  @Builder
+  private ReadonlyLine(label: string, value: string) {
+    Row() {
+      Text(label)
+        .fontSize(13)
+        .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+        .width(76)
+      Text(value)
+        .fontSize(14)
+        .fontColor(TERMINAL_TEXT_COLOR)
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
+  @Builder
+  private AddConnectionPage() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column() {
+        Column({ space: 16 }) {
+          Column({ space: 6 }) {
+            Row() {
+              this.WindowDots(8)
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+            .height(10)
+            .translate({ x: -2, y: 10 })
+            Stack({ alignContent: Alignment.Center }) {
+              Row() {
+                Text('新建连接')
+                  .fontSize(22)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(TERMINAL_TEXT_COLOR)
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+==== 第 2 页 ====
+  refreshToken: string;
+}
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  sessionName: string;
+  expiresIn: number;
+}
+export interface ListResumesRequest {
+  baseUrl: string;
+  accessToken: string;
+}
+export interface StartResumeRequest {
+  baseUrl: string;
+  accessToken: string;
+  cwd?: string;
+}
+export interface ResumeThreadRequest {
+  baseUrl: string;
+  accessToken: string;
+  threadId: string;
+}
+export interface SendResumeMessageRequest {
+  baseUrl: string;
+  accessToken: string;
+  threadId: string;
+  message: string;
+}
+export interface ResumeMutationRequest {
+  baseUrl: string;
+  accessToken: string;
+  threadId: string;
+}
+export interface RenameResumeRequest extends ResumeMutationRequest {
+  name: string;
+}
+export interface ResumeItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  status: string;
+  updatedAt: string;
+}
+export interface ResumeSession {
+  threadId: string;
+  title: string;
+  cwd: string;
+  status: string;
+  turns: ResumeTurn[];
+}
+==== 后段第 2 页 ====
+              }
+              .width('100%')
+              .height('100%')
+              .alignItems(VerticalAlign.Center)
+            }
+            .width('100%')
+            .height(44)
+          }
+          .width('100%')
+          Column({ space: 18 }) {
+            this.Field('服务器地址', this.draftAddress, '例如 8.153.175.142')
+            Row({ space: 10 }) {
+              Button(this.testingConnection ? '正在测试...' : '测试连接')
+                .height(36)
+                .fontSize(13)
+                .fontColor(TERMINAL_ACCENT_TEXT_COLOR)
+                .backgroundColor(this.testingConnection ? TERMINAL_BUTTON_SECONDARY_COLOR : TERMINAL_ACCENT_COLOR)
+                .borderRadius(8)
+                .enabled(!this.testingConnection && this.draftAddress.trim().length > 0)
+                .onClick(() => {
+                  this.testConnection();
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.End)
+            if (this.connectionTestResult.length > 0) {
+              Text(this.connectionTestResult)
+                .fontSize(13)
+                .fontColor(this.connectionTestPassed ? TERMINAL_SUCCESS_TEXT_COLOR : TERMINAL_DANGER_TEXT_COLOR)
+                .width('100%')
+                .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+                .backgroundColor(this.connectionTestPassed ? TERMINAL_SUCCESS_SURFACE_COLOR : TERMINAL_DANGER_SURFACE_COLOR)
+                .borderRadius(10)
+            }
+            this.Field('注册码', this.draftPassword, '请输入注册码')
+            this.Field('连接名称', this.draftName, '可选')
+            Column({ space: 4 }) {
+              Text('注册码由服务器管理员提供，每个设备注册一次。')
+                .fontSize(12)
+                .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+                .width('100%')
+              Text('设备密钥由系统自动生成并安全存储在本机，无需手动管理。')
+                .fontSize(12)
+                .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+                .width('100%')
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .backgroundColor(TERMINAL_NOTICE_SURFACE_COLOR)
+            .border({ width: 1, color: TERMINAL_NOTICE_BORDER_COLOR })
+==== 第 3 页 ====
+export interface ResumeTurn {
+  id: string;
+  status: string;
+  startedAt: string;
+  completedAt: string;
+  items: ResumeContentItem[];
+}
+export interface ResumeContentItem {
+  id: string;
+  role: string;
+  kind: string;
+  text: string;
+  status: string;
+}
+export interface GatewayClient {
+  register(request: RegisterRequest): Promise<RegisterResponse>;
+  activate(request: ActivateRequest): Promise<LoginResponse>;
+  challenge(request: ChallengeRequest): Promise<ChallengeResponse>;
+  verify(request: VerifyRequest): Promise<LoginResponse>;
+  refresh(request: RefreshRequest): Promise<RefreshResponse>;
+  logout(request: LogoutRequest): Promise<void>;
+  checkHealth(baseUrl: string): Promise<boolean>;
+  listResumes(request: ListResumesRequest): Promise<ResumeItem[]>;
+  startResume(request: StartResumeRequest): Promise<ResumeSession>;
+  resumeThread(request: ResumeThreadRequest): Promise<ResumeSession>;
+  sendResumeMessage(request: SendResumeMessageRequest): Promise<ResumeSession>;
+  renameResume(request: RenameResumeRequest): Promise<void>;
+  deleteResume(request: ResumeMutationRequest): Promise<void>;
+}
+export interface RequestHeaders {
+  contentType: string;
+  authorization: string;
+}
+export interface RequestOptions {
+  method: string;
+  headers: RequestHeaders;
+  body?: string;
+}
+export interface GatewayHttpResponse {
+  statusCode: number;
+  result: string;
+}
+export interface GatewayTransport {
+  request(url: string, options: RequestOptions): Promise<GatewayHttpResponse>;
+}
+export class GatewayHttpError extends Error {
+  public statusCode: number;
+  constructor(statusCode: number) {
+    super(`Gateway request failed: ${statusCode}`);
+    this.statusCode = statusCode;
+==== 后段第 3 页 ====
+            .borderRadius(10)
+            if (this.dialogFeedback.length > 0) {
+              Text(this.dialogFeedback)
+                .fontSize(13)
+                .fontColor(TERMINAL_DANGER_TEXT_COLOR)
+                .width('100%')
+                .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+                .backgroundColor(TERMINAL_DANGER_SURFACE_COLOR)
+                .borderRadius(10)
+            }
+          }
+          .width('100%')
+          Button('连接')
+            .width('100%')
+            .height(48)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(TERMINAL_ACCENT_TEXT_COLOR)
+            .backgroundColor(TERMINAL_ACCENT_COLOR)
+            .borderRadius(12)
+            .shadow({ radius: 16, color: TERMINAL_ACCENT_GLOW_COLOR, offsetX: 0, offsetY: 4 })
+            .enabled(!this.connectionSubmitting)
+            .onClick(() => {
+              this.addConnection();
+            })
+        }
+        .width('100%')
+        .constraintSize({ maxWidth: this.getCardMaxWidth(), minHeight: this.addConnectionMeasuredCardHeight() })
+        .padding({ left: 16, right: 16, top: 4, bottom: 20 })
+        .backgroundColor(TERMINAL_PANEL_ELEVATED_COLOR)
+        .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+        .borderRadius(20)
+        .shadow({ radius: 24, color: TERMINAL_CARD_SHADOW_COLOR, offsetX: 0, offsetY: 8 })
+        .translate({ y: this.addConnectionCardOffsetY() })
+        .onAreaChange((_oldValue: Area, newValue: Area) => {
+          const nextHeight = this.areaLengthToNumber(newValue.height);
+          if (this.addConnectionCardHeight !== nextHeight) {
+            this.addConnectionCardHeight = nextHeight;
+          }
+          if (nextHeight > this.addConnectionNaturalCardHeight) {
+            this.addConnectionNaturalCardHeight = nextHeight;
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+      .clip(false)
+    }
+==== 第 4 页 ====
+  }
+}
+export class GatewayNetworkError extends Error {
+  public detail: string;
+  constructor(detail: string = '') {
+    super('Gateway network request failed');
+    this.detail = detail;
+  }
+}
+export function isGatewayAuthenticationError(error: Object): boolean {
+  if (!(error instanceof GatewayHttpError)) {
+    return false;
+  }
+  return error.statusCode === 401 || error.statusCode === 403;
+}
+export function isGatewayNetworkError(error: Object): boolean {
+  return error instanceof GatewayNetworkError;
+}
+interface LoginResponseBody {
+  accessToken: string;
+  refreshToken: string;
+  sessionName: string;
+  expiresIn: number;
+}
+interface RegisterResponseBody {
+  activationToken: string;
+  challenge: string;
+}
+interface ChallengeResponseBody {
+  nonce: string;
+  expiresAt: string;
+}
+interface RefreshResponseBody {
+  accessToken: string;
+}
+interface HealthResponseBody {
+  status: string;
+}
+interface ListResumesResponseBody {
+  items: ResumeItem[];
+}
+interface ThreadStatus {
+  type?: string;
+}
+interface ResumeThreadBodyThread {
+  id?: string;
+  name?: string;
+  preview?: string;
+  cwd?: string;
+  status?: string | ThreadStatus;
+==== 后段第 4 页 ====
+    .width('100%')
+    .height('100%')
+    .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+    .clip(false)
+      .onAreaChange((_oldValue: Area, newValue: Area) => {
+        const nextPageHeight = this.areaLengthToNumber(newValue.height);
+        if (this.addConnectionPageHeight !== nextPageHeight) {
+          this.addConnectionPageHeight = nextPageHeight;
+        }
+        if (nextPageHeight > this.addConnectionScreenHeight) {
+          this.addConnectionScreenHeight = nextPageHeight;
+        }
+        const nextPageWidth = this.areaLengthToNumber(newValue.width);
+        if (this.addConnectionPageWidth !== nextPageWidth) {
+          this.addConnectionPageWidth = nextPageWidth;
+        }
+      })
+  }
+  build() {
+    Stack() {
+      if (this.hasActiveResumeSession) {
+        this.ResumeSessionContent()
+      } else if (this.dialog === ConnectionDialog.ADD) {
+        this.AddConnectionPage()
+      } else if (this.dialog === ConnectionDialog.RESUME_LIST) {
+        this.ResumeListPage()
+      } else {
+        Column() {
+          this.ConnectionList()
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+        if (this.dialog === ConnectionDialog.EDIT) {
+          this.DialogFrame('编辑连接')
+        } else if (this.dialog === ConnectionDialog.RELOGIN) {
+          this.DialogFrame('重新登录')
+        } else if (this.dialog === ConnectionDialog.DELETE) {
+          this.DialogFrame('删除连接')
+        }
+      }
+      if (this.shouldShowRightEdgeBackGesture()) {
+        Column() {
+        }
+        .width(28)
+        .height('100%')
+        .backgroundColor('#00FFFFFF')
+        .align(Alignment.End)
+        .gesture(
+          PanGesture({ direction: PanDirection.Horizontal })
+==== 第 5 页 ====
+  turns?: ResumeTurn[];
+}
+interface ResumeThreadResponseBody {
+  threadId?: string;
+  title?: string;
+  cwd?: string;
+  status?: string | ThreadStatus;
+  turns?: ResumeTurn[];
+  thread?: ResumeThreadBodyThread;
+}
+class SystemGatewayTransport implements GatewayTransport {
+  private session: rcp.Session;
+  private caContent: string;
+  constructor(caContent: string = '') {
+    this.caContent = caContent;
+    const timeoutCfg: rcp.Timeout = {
+      connectMs: 30000,
+      transferMs: 30000
+    };
+    if (caContent.length > 0) {
+      console.info(`[SystemGatewayTransport] Creating session with CA cert, length=${caContent.length}`);
+      const caCert: rcp.CertificateAuthority = { content: this.caContent };
+      const sessionCfg: rcp.SessionConfiguration = {
+        requestConfiguration: {
+          transfer: {
+            timeout: timeoutCfg
+          },
+          security: { remoteValidation: caCert }
+        }
+      };
+      this.session = rcp.createSession(sessionCfg);
+    } else {
+      console.info('[SystemGatewayTransport] Creating session WITHOUT CA cert (default trust)');
+      const sessionCfg: rcp.SessionConfiguration = {
+        requestConfiguration: {
+          transfer: {
+            timeout: timeoutCfg
+          }
+        }
+      };
+      this.session = rcp.createSession(sessionCfg);
+    }
+  }
+  async request(url: string, options: RequestOptions): Promise<GatewayHttpResponse> {
+    const req = new rcp.Request(url, options.method);
+    const headers: Record<string, string> = {};
+    if (options.headers.contentType.length > 0) {
+      headers['content-type'] = options.headers.contentType;
+    }
+    if (options.headers.authorization.length > 0) {
+==== 后段第 5 页 ====
+            .onActionEnd((event: GestureEvent) => {
+              this.handlePageLeftSwipe(event.offsetX);
+            })
+        )
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+  }
+}
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { window } from '@kit.ArkUI';
+import { preferences } from '@kit.ArkData';
+const DOMAIN = 0x0000;
+const DARK_MODE_PREFERENCES_NAME: string = 'codex_router_dark_mode';
+const DARK_MODE_PREFERENCES_KEY: string = 'dark_mode';
+export default class EntryAbility extends UIAbility {
+  private mainWindow: window.Window | null = null;
+  private keyboardHeightChangeCallback: ((height: number) => void) | null = null;
+  private avoidAreaChangeCallback: ((options: window.AvoidAreaOptions) => void) | null = null;
+  private keyboardDidShowCallback: ((info: window.KeyboardInfo) => void) | null = null;
+  private keyboardDidHideCallback: ((info: window.KeyboardInfo) => void) | null = null;
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    this.applySavedColorMode();
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
+  }
+  private applySavedColorMode(): void {
+    let saved: preferences.ValueType = '';
+    try {
+      const store = preferences.getPreferencesSync(this.context, { name: DARK_MODE_PREFERENCES_NAME });
+      saved = store.getSync(DARK_MODE_PREFERENCES_KEY, '');
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to read color mode preference. Cause: %{public}s', JSON.stringify(err));
+    }
+    try {
+      if (saved === 'dark') {
+        this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+      } else if (saved === 'light') {
+        this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+      } else {
+        this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+      }
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
+    }
+  }
+  onDestroy(): void {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
+==== 第 6 页 ====
+      headers['authorization'] = options.headers.authorization;
+    }
+    req.headers = headers;
+    if (options.body !== undefined && options.body.length > 0) {
+      req.content = options.body;
+    }
+    try {
+      const response = await this.session.fetch(req);
+      const result: string = JSON.stringify(response.toJSON());
+      return {
+        statusCode: response.statusCode,
+        result: result
+      };
+    } catch (error) {
+      const detail: string = typeof error === 'object' && error !== null ? JSON.stringify(error) : String(error);
+      console.error(`[GatewayTransport] request failed: url=${url}, method=${options.method}, error=${detail}`);
+      throw new GatewayNetworkError(detail);
+    }
+  }
+}
+export class HttpGatewayClient implements GatewayClient {
+  private transport: GatewayTransport;
+  constructor(transport: GatewayTransport = new SystemGatewayTransport()) {
+    this.transport = transport;
+  }
+  static createWithCert(certContent: string): HttpGatewayClient {
+    return new HttpGatewayClient(new SystemGatewayTransport(certContent));
+  }
+  async register(request: RegisterRequest): Promise<RegisterResponse> {
+    const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/register'), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: ''
+      },
+      body: JSON.stringify({
+        deviceId: request.deviceId,
+        publicKey: request.publicKey,
+        registrationCode: request.registrationCode,
+        deviceName: request.deviceName
+      })
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as RegisterResponseBody;
+    return {
+      activationToken: body.activationToken,
+      challenge: body.challenge
+    };
+  }
+  async activate(request: ActivateRequest): Promise<LoginResponse> {
+==== 后段第 6 页 ====
+  }
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    try {
+      this.mainWindow = windowStage.getMainWindowSync();
+      this.applyImmersiveWindow(this.mainWindow);
+      this.watchKeyboardHeight(this.mainWindow);
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to apply immersive window. Cause: %{public}s', JSON.stringify(err));
+    }
+    windowStage.loadContent('pages/Index', (err) => {
+      if (err.code) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
+        return;
+      }
+      hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+    });
+  }
+  onWindowStageDestroy(): void {
+    this.unwatchKeyboardHeight();
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
+  }
+  onForeground(): void {
+    if (this.mainWindow !== null) {
+      this.applyImmersiveWindow(this.mainWindow);
+    }
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+  }
+  onBackground(): void {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+  }
+  private async applyImmersiveWindow(mainWindow: window.Window): Promise<void> {
+    try {
+      await mainWindow.setWindowLayoutFullScreen(true);
+      await mainWindow.setWindowSystemBarEnable([]);
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to hide system bars. Cause: %{public}s', JSON.stringify(err));
+    }
+  }
+  private watchKeyboardHeight(mainWindow: window.Window): void {
+    AppStorage.setOrCreate<number>('aiRouterKeyboardHeightPx', 0);
+    this.keyboardHeightChangeCallback = (height: number): void => {
+      this.updateKeyboardHeight(Math.max(0, height), 'height');
+    };
+    this.avoidAreaChangeCallback = (options: window.AvoidAreaOptions): void => {
+      if (options.type !== window.AvoidAreaType.TYPE_KEYBOARD) {
+        return;
+      }
+      this.updateKeyboardHeight(this.resolveKeyboardAvoidAreaHeight(options.area), 'avoidArea');
+    };
+==== 第 7 页 ====
+    const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/activate'), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: ''
+      },
+      body: JSON.stringify({
+        deviceId: request.deviceId,
+        activationToken: request.activationToken,
+        signedChallenge: request.signedChallenge
+      })
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as LoginResponseBody;
+    return {
+      accessToken: body.accessToken,
+      refreshToken: body.refreshToken,
+      sessionName: 'opencode-main',
+      expiresIn: 900
+    };
+  }
+  async challenge(request: ChallengeRequest): Promise<ChallengeResponse> {
+    const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/challenge'), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: ''
+      },
+      body: JSON.stringify({
+        deviceId: request.deviceId
+      })
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as ChallengeResponseBody;
+    return {
+      nonce: body.nonce,
+      expiresAt: body.expiresAt
+    };
+  }
+  async verify(request: VerifyRequest): Promise<LoginResponse> {
+    const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/verify'), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: ''
+      },
+      body: JSON.stringify({
+        deviceId: request.deviceId,
+        nonce: request.nonce,
+        signature: request.signature
+==== 后段第 7 页 ====
+    this.keyboardDidShowCallback = (info: window.KeyboardInfo): void => {
+      this.updateKeyboardHeight(Math.max(0, info.endRect.height), 'didShow');
+    };
+    this.keyboardDidHideCallback = (_info: window.KeyboardInfo): void => {
+      this.updateKeyboardHeight(0, 'didHide');
+    };
+    mainWindow.on('keyboardHeightChange', this.keyboardHeightChangeCallback);
+    mainWindow.on('avoidAreaChange', this.avoidAreaChangeCallback);
+    try {
+      mainWindow.on('keyboardDidShow', this.keyboardDidShowCallback);
+      mainWindow.on('keyboardDidHide', this.keyboardDidHideCallback);
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to watch keyboard animation. Cause: %{public}s', JSON.stringify(err));
+    }
+    try {
+      this.updateKeyboardHeight(this.resolveKeyboardAvoidAreaHeight(
+        mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD)), 'initialAvoidArea');
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to read keyboard avoid area. Cause: %{public}s', JSON.stringify(err));
+    }
+  }
+  private unwatchKeyboardHeight(): void {
+    if (this.mainWindow !== null && this.keyboardHeightChangeCallback !== null) {
+      try {
+        this.mainWindow.off('keyboardHeightChange', this.keyboardHeightChangeCallback);
+      } catch (err) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to unwatch keyboard height. Cause: %{public}s', JSON.stringify(err));
+      }
+    }
+    if (this.mainWindow !== null && this.avoidAreaChangeCallback !== null) {
+      try {
+        this.mainWindow.off('avoidAreaChange', this.avoidAreaChangeCallback);
+      } catch (err) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to unwatch keyboard avoid area. Cause: %{public}s',
+          JSON.stringify(err));
+      }
+    }
+    if (this.mainWindow !== null && this.keyboardDidShowCallback !== null) {
+      try {
+        this.mainWindow.off('keyboardDidShow', this.keyboardDidShowCallback);
+      } catch (err) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to unwatch keyboard show. Cause: %{public}s', JSON.stringify(err));
+      }
+    }
+    if (this.mainWindow !== null && this.keyboardDidHideCallback !== null) {
+      try {
+        this.mainWindow.off('keyboardDidHide', this.keyboardDidHideCallback);
+      } catch (err) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to unwatch keyboard hide. Cause: %{public}s', JSON.stringify(err));
+      }
+==== 第 8 页 ====
+      })
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as LoginResponseBody;
+    return {
+      accessToken: body.accessToken,
+      refreshToken: body.refreshToken,
+      sessionName: 'opencode-main',
+      expiresIn: 900
+    };
+  }
+  async refresh(request: RefreshRequest): Promise<RefreshResponse> {
+    const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/refresh'), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: ''
+      },
+      body: JSON.stringify({
+        refreshToken: request.refreshToken
+      })
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as RefreshResponseBody;
+    return {
+      accessToken: body.accessToken
+    };
+  }
+  async logout(request: LogoutRequest): Promise<void> {
+    try {
+      await this.transport.request(joinUrl(request.baseUrl, '/api/auth/logout'), {
+        method: 'POST',
+        headers: {
+          contentType: 'application/json',
+          authorization: ''
+        },
+        body: JSON.stringify({
+          refreshToken: request.refreshToken
+        })
+      });
+    } catch {
+    }
+  }
+  async checkHealth(baseUrl: string): Promise<boolean> {
+    const response = await this.transport.request(joinUrl(baseUrl, '/health'), {
+      method: 'GET',
+      headers: {
+        contentType: '',
+        authorization: ''
+      }
+==== 后段第 8 页 ====
+    }
+    this.keyboardHeightChangeCallback = null;
+    this.avoidAreaChangeCallback = null;
+    this.keyboardDidShowCallback = null;
+    this.keyboardDidHideCallback = null;
+    AppStorage.setOrCreate<number>('aiRouterKeyboardHeightPx', 0);
+    AppStorage.set<number>('aiRouterKeyboardHeightPx', 0);
+  }
+  private resolveKeyboardAvoidAreaHeight(area: window.AvoidArea): number {
+    if (!area.visible) {
+      return 0;
+    }
+    return Math.max(0, area.bottomRect.height);
+  }
+  private updateKeyboardHeight(height: number, source: string): void {
+    const nextHeight = Math.max(0, height);
+    AppStorage.setOrCreate<number>('aiRouterKeyboardHeightPx', nextHeight);
+    AppStorage.set<number>('aiRouterKeyboardHeightPx', nextHeight);
+    hilog.info(DOMAIN, 'testTag', 'Keyboard height changed by %{public}s: %{public}d', source, nextHeight);
+  }
+}
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { BackupExtensionAbility, BundleVersion } from '@kit.CoreFileKit';
+const DOMAIN = 0x0000;
+export default class EntryBackupAbility extends BackupExtensionAbility {
+  async onBackup() {
+    hilog.info(DOMAIN, 'testTag', 'onBackup ok');
+    await Promise.resolve();
+  }
+  async onRestore(bundleVersion: BundleVersion) {
+    hilog.info(DOMAIN, 'testTag', 'onRestore ok %{public}s', JSON.stringify(bundleVersion));
+    await Promise.resolve();
+  }
+}
+export type ConnectionStatus = 'online' | 'offline' | 'needs_login' | 'unknown';
+export type ConnectionSwitchIntent = 'turn_on_and_show_resumes' | 'turn_off' | 'require_login';
+export type ResumeFeedbackAction = 'none' | 'relogin';
+export type ConnectionAgent = 'OpenCode';
+export interface SavedConnection {
+  id: string;
+  name: string;
+  agent: ConnectionAgent;
+  host: string;
+  port: number;
+  scheme: string;
+  username: string;
+  lastUsedAt: string;
+  status: ConnectionStatus;
+  accessTokenRef: string;
+  refreshTokenRef: string;
+==== 第 9 页 ====
+    });
+    if (response.statusCode !== 200) {
+      return false;
+    }
+    try {
+      const body = JSON.parse(response.result) as HealthResponseBody;
+      return body.status === 'ok';
+    } catch {
+      return false;
+    }
+  }
+  async listResumes(request: ListResumesRequest): Promise<ResumeItem[]> {
+    const url = joinUrl(request.baseUrl, OPENCODE_RESUMES_PATH);
+    console.info(`[listResumes] 请求 URL: ${url}`);
+    const response = await this.transport.request(url, {
+      method: 'GET',
+      headers: {
+        contentType: '',
+        authorization: `Bearer ${request.accessToken}`
+      }
+    });
+    ensureSuccess(response);
+    const body = JSON.parse(response.result) as ListResumesResponseBody;
+    return body.items;
+  }
+  async startResume(request: StartResumeRequest): Promise<ResumeSession> {
+    const response = await this.transport.request(joinUrl(request.baseUrl, OPENCODE_RESUMES_PATH), {
+      method: 'POST',
+      headers: {
+        contentType: 'application/json',
+        authorization: `Bearer ${request.accessToken}`
+      },
+      body: JSON.stringify({
+        cwd: normalizeString(request.cwd)
+      })
+    });
+    ensureSuccess(response);
+    return toResumeSession(JSON.parse(response.result) as ResumeThreadResponseBody, '');
+  }
+  async resumeThread(request: ResumeThreadRequest): Promise<ResumeSession> {
+    const response = await this.transport.request(
+      joinUrl(request.baseUrl, `${OPENCODE_RESUMES_PATH}/${encodeURIComponent(request.threadId)}/resume`),
+      {
+        method: 'POST',
+        headers: {
+          contentType: 'application/json',
+          authorization: `Bearer ${request.accessToken}`
+        },
+        body: JSON.stringify({
+          threadId: request.threadId
+==== 后段第 9 页 ====
+  privateKeyRef: string;
+}
+export interface NormalizedServerAddress {
+  scheme: string;
+  host: string;
+  port: number;
+  baseUrl: string;
+}
+export interface EditableConnectionFields {
+  id: string;
+  name: string;
+  agent: ConnectionAgent;
+  host: string;
+  port: number;
+  scheme: string;
+  username: string;
+  lastUsedAt: string;
+  accessTokenRef?: string;
+  refreshTokenRef?: string;
+  privateKeyRef?: string;
+}
+export interface ConnectionFormErrors {
+  address: string;
+  privateKey: string;
+  hasError: boolean;
+}
+export interface ConnectionCarouselSelection {
+  index: number;
+  id: string;
+}
+export const MAX_CONNECTIONS: number = 5;
+const DEFAULT_SCHEME: string = 'https';
+const DEFAULT_PORT: number = 8443;
+const RESUME_CONTENT_BASE_FONT_SCALE: number = 0.9;
+export function normalizeServerAddress(input: string): NormalizedServerAddress {
+  let trimmedInput = input.trim();
+  let scheme = DEFAULT_SCHEME;
+  let address = trimmedInput;
+  const schemeSeparatorIndex = trimmedInput.indexOf('://');
+  if (schemeSeparatorIndex >= 0) {
+    scheme = trimmedInput.substring(0, schemeSeparatorIndex);
+    address = trimmedInput.substring(schemeSeparatorIndex + 3);
+  }
+  let host = address;
+  let port = DEFAULT_PORT;
+  const portSeparatorIndex = address.lastIndexOf(':');
+  if (portSeparatorIndex > -1) {
+    const portText = address.substring(portSeparatorIndex + 1);
+    const parsedPort = Number(portText);
+    if (parsedPort === parsedPort && parsedPort > 0 && parsedPort <= 65535) {
+==== 第 10 页 ====
+        })
+      }
+    );
+    ensureSuccess(response);
+    return toResumeSession(JSON.parse(response.result) as ResumeThreadResponseBody, request.threadId);
+  }
+  async sendResumeMessage(request: SendResumeMessageRequest): Promise<ResumeSession> {
+    const response = await this.transport.request(
+      joinUrl(request.baseUrl, `${OPENCODE_RESUMES_PATH}/${encodeURIComponent(request.threadId)}/messages`),
+      {
+        method: 'POST',
+        headers: {
+          contentType: 'application/json',
+          authorization: `Bearer ${request.accessToken}`
+        },
+        body: JSON.stringify({
+          message: request.message
+        })
+      }
+    );
+    ensureSuccess(response);
+    return toResumeSession(JSON.parse(response.result) as ResumeThreadResponseBody, request.threadId);
+  }
+  async renameResume(request: RenameResumeRequest): Promise<void> {
+    const response = await this.transport.request(
+      joinUrl(request.baseUrl, `${OPENCODE_RESUMES_PATH}/${encodeURIComponent(request.threadId)}/name`),
+      {
+        method: 'POST',
+        headers: {
+          contentType: 'application/json',
+          authorization: `Bearer ${request.accessToken}`
+        },
+        body: JSON.stringify({
+          name: request.name
+        })
+      }
+    );
+    ensureSuccess(response);
+  }
+  async deleteResume(request: ResumeMutationRequest): Promise<void> {
+    const response = await this.transport.request(
+      joinUrl(request.baseUrl, `${OPENCODE_RESUMES_PATH}/${encodeURIComponent(request.threadId)}`),
+      {
+        method: 'DELETE',
+        headers: {
+          contentType: '',
+          authorization: `Bearer ${request.accessToken}`
+        }
+      }
+    );
+==== 后段第 10 页 ====
+      host = address.substring(0, portSeparatorIndex);
+      port = parsedPort;
+    }
+  }
+  return {
+    scheme: scheme,
+    host: host,
+    port: port,
+    baseUrl: scheme + '://' + host + ':' + port.toString()
+  };
+}
+export function resolveConnectionName(
+  customName: string,
+  sessionName: string,
+  username: string,
+  host: string
+): string {
+  const normalizedCustomName = customName.trim();
+  if (normalizedCustomName.length > 0) {
+    return normalizedCustomName;
+  }
+  const normalizedHost = host.trim();
+  if (normalizedHost.length > 0) {
+    return normalizedHost;
+  }
+  const normalizedSessionName = sessionName.trim();
+  if (normalizedSessionName.length > 0) {
+    return normalizedSessionName;
+  }
+  return username.trim();
+}
+export function resolveConnectionDisplayName(
+  connections: SavedConnection[],
+  id: string,
+  fallbackName: string
+): string {
+  const found = connections.find((item: SavedConnection) => item.id === id);
+  if (found !== undefined) {
+    return found.name;
+  }
+  return fallbackName;
+}
+export function resolveConnectionCardTitle(connection: SavedConnection): string {
+  return connection.host.trim();
+}
+export function canAddConnection(connections: SavedConnection[]): boolean {
+  return connections.length < MAX_CONNECTIONS;
+}
+function normalizeConnectionIp(ip: string): string {
+  return ip.trim().toLowerCase();
+==== 第 11 页 ====
+    ensureSuccess(response);
+  }
+}
+export class MockGatewayClient implements GatewayClient {
+  async checkHealth(baseUrl: string): Promise<boolean> {
+    return true;
+  }
+  async register(request: RegisterRequest): Promise<RegisterResponse> {
+    return {
+      activationToken: 'act-mock-001',
+      challenge: 'mock-challenge'
+    };
+  }
+  async activate(request: ActivateRequest): Promise<LoginResponse> {
+    return {
+      accessToken: 'router_access_mock',
+      refreshToken: 'router_refresh_mock',
+      sessionName: 'opencode-main',
+      expiresIn: 900
+    };
+  }
+  async challenge(request: ChallengeRequest): Promise<ChallengeResponse> {
+    return {
+      nonce: 'mock-nonce',
+      expiresAt: new Date(Date.now() + 120000).toISOString()
+    };
+  }
+  async verify(request: VerifyRequest): Promise<LoginResponse> {
+    return {
+      accessToken: 'router_access_mock',
+      refreshToken: 'router_refresh_mock',
+      sessionName: 'opencode-main',
+      expiresIn: 900
+    };
+  }
+  async refresh(request: RefreshRequest): Promise<RefreshResponse> {
+    return {
+      accessToken: 'router_access_mock_refreshed'
+    };
+  }
+  async logout(request: LogoutRequest): Promise<void> {
+  }
+  async listResumes(request: ListResumesRequest): Promise<ResumeItem[]> {
+    return [
+      {
+        id: 'thread-login-fix',
+        title: 'Fix router login',
+        subtitle: '/srv/projects/codex-router',
+        status: 'completed',
+        updatedAt: '2026-07-02T10:54:44.000Z'
+==== 后段第 11 页 ====
+}
+export function generateSavedConnectionId(ip: string): string {
+  return `OpenCode-${normalizeConnectionIp(ip)}`;
+}
+export function hasConnectionWithSameEndpoint(
+  connections: SavedConnection[],
+  scheme: string,
+  host: string,
+  port: number,
+  ignoredConnectionId: string
+): boolean {
+  const targetId = generateSavedConnectionId(host);
+  return connections.some((item: SavedConnection) => {
+    if (ignoredConnectionId.length > 0 && item.id === ignoredConnectionId) {
+      return false;
+    }
+    return generateSavedConnectionId(item.host) === targetId;
+  });
+}
+export function sortConnectionsByLastUsed(connections: SavedConnection[]): SavedConnection[] {
+  return connections.slice().sort((left: SavedConnection, right: SavedConnection) => {
+    return Date.parse(right.lastUsedAt) - Date.parse(left.lastUsedAt);
+  });
+}
+export function resolveCarouselIndex(currentIndex: number, itemCount: number): number {
+  if (itemCount <= 0) {
+    return 0;
+  }
+  if (currentIndex < 0) {
+    return 0;
+  }
+  if (currentIndex >= itemCount) {
+    return itemCount - 1;
+  }
+  return currentIndex;
+}
+export function resolveCarouselSwipeIndex(currentIndex: number, itemCount: number, offsetX: number): number {
+  if (itemCount <= 1) {
+    return 0;
+  }
+  const threshold = 24;
+  if (offsetX < -threshold) {
+    return currentIndex >= itemCount - 1 ? 0 : currentIndex + 1;
+  }
+  if (offsetX > threshold) {
+    return currentIndex <= 0 ? itemCount - 1 : currentIndex - 1;
+  }
+  return resolveCarouselIndex(currentIndex, itemCount);
+}
+export function resolveConnectionSwiperReleaseThreshold(): number {
+==== 第 12 页 ====
+      },
+      {
+        id: 'thread-backend',
+        title: 'Bridge OpenCode app-server',
+        subtitle: '/srv/projects/codex-router',
+        status: 'running',
+        updatedAt: '2026-07-02T11:20:00.000Z'
+      }
+    ];
+  }
+  async startResume(request: StartResumeRequest): Promise<ResumeSession> {
+    return {
+      threadId: 'thread-new',
+      title: 'New OpenCode Resume',
+      cwd: normalizeString(request.cwd) || DEFAULT_RESUME_CWD,
+      status: 'running',
+      turns: []
+    };
+  }
+  async resumeThread(request: ResumeThreadRequest): Promise<ResumeSession> {
+    return {
+      threadId: request.threadId,
+      title: request.threadId === 'thread-login-fix' ? 'Fix router login' : 'Bridge OpenCode app-server',
+      cwd: '/srv/projects/codex-router',
+      status: 'running',
+      turns: [
+        {
+          id: 'turn-mock',
+          status: 'completed',
+          startedAt: '2026-07-02T10:54:44.000Z',
+          completedAt: '2026-07-02T10:55:00.000Z',
+          items: [
+            {
+              id: 'turn-mock:item-1',
+              role: 'user',
+              kind: 'message',
+              text: 'Open saved OpenCode session',
+              status: ''
+            },
+            {
+              id: 'turn-mock:item-2',
+              role: 'assistant',
+              kind: 'message',
+              text: 'Loaded session content from OpenCode.',
+              status: ''
+            }
+          ]
+        }
+      ]
+    };
+==== 后段第 12 页 ====
+  return 0.2;
+}
+export function resolveConnectionSwiperReleaseIndex(currentIndex: number, itemCount: number, position: number): number {
+  const current = resolveCarouselIndex(currentIndex, itemCount);
+  if (itemCount <= 1 || Math.abs(position) < resolveConnectionSwiperReleaseThreshold()) {
+    return current;
+  }
+  if (position < 0) {
+    return current >= itemCount - 1 ? 0 : current + 1;
+  }
+  if (position > 0) {
+    return current <= 0 ? itemCount - 1 : current - 1;
+  }
+  return current;
+}
+export function resolveConnectionIndexById(
+  connections: SavedConnection[],
+  id: string,
+  fallbackIndex: number
+): number {
+  const sorted = sortConnectionsByLastUsed(connections);
+  const foundIndex = sorted.findIndex((item: SavedConnection) => item.id === id);
+  if (foundIndex >= 0) {
+    return foundIndex;
+  }
+  return resolveCarouselIndex(fallbackIndex, sorted.length);
+}
+export function resolveConnectionIdByIndex(connections: SavedConnection[], index: number): string {
+  const sorted = sortConnectionsByLastUsed(connections);
+  if (sorted.length === 0) {
+    return '';
+  }
+  return sorted[resolveCarouselIndex(index, sorted.length)].id;
+}
+export function resolveConnectionSelectionBySwiperIndex(
+  connections: SavedConnection[],
+  index: number
+): ConnectionCarouselSelection {
+  const sorted = sortConnectionsByLastUsed(connections);
+  if (sorted.length === 0) {
+    return {
+      index: 0,
+      id: ''
+    };
+  }
+  const selectedIndex = resolveCarouselIndex(index, sorted.length);
+  return {
+    index: selectedIndex,
+    id: sorted[selectedIndex].id
+  };
+==== 第 13 页 ====
+  }
+  async sendResumeMessage(request: SendResumeMessageRequest): Promise<ResumeSession> {
+    const session = await this.resumeThread({
+      baseUrl: request.baseUrl,
+      accessToken: request.accessToken,
+      threadId: request.threadId
+    });
+    return {
+      threadId: session.threadId,
+      title: session.title,
+      cwd: session.cwd,
+      status: 'running',
+      turns: session.turns.concat([
+        {
+          id: 'turn-mock-reply',
+          status: 'completed',
+          startedAt: '2026-07-02T11:00:00.000Z',
+          completedAt: '2026-07-02T11:01:00.000Z',
+          items: [
+            {
+              id: 'turn-mock-reply:item-1',
+              role: 'user',
+              kind: 'message',
+              text: request.message,
+              status: ''
+            },
+            {
+              id: 'turn-mock-reply:item-2',
+              role: 'assistant',
+              kind: 'message',
+              text: 'Mock reply from OpenCode.',
+              status: ''
+            }
+          ]
+        }
+      ])
+    };
+  }
+  async renameResume(_request: RenameResumeRequest): Promise<void> {
+  }
+  async deleteResume(_request: ResumeMutationRequest): Promise<void> {
+  }
+}
+function toResumeSession(body: ResumeThreadResponseBody, fallbackThreadId: string): ResumeSession {
+  const thread = body.thread;
+  const status = body.status !== undefined ? body.status : thread?.status;
+  const title = normalizeString(body.title) || normalizeString(thread?.name) || normalizeString(thread?.preview) ||
+    fallbackThreadId;
+  return {
+    threadId: normalizeString(body.threadId) || normalizeString(thread?.id) || fallbackThreadId,
+==== 后段第 13 页 ====
+}
+export function resolveConnectionSwiperItemSpace(itemCount: number): number {
+  return 0;
+}
+export function resolveConnectionSwiperAutoPlay(): boolean {
+  return false;
+}
+export function resolveConnectionSwiperDisableSwipe(): boolean {
+  return false;
+}
+export function resolveConnectionCardSwitchGapReduction(itemCount: number): number {
+  return itemCount > 1 ? 20 : 0;
+}
+export function resolveConnectionCardSwitchOffset(position: number, gapReduction: number): number {
+  if (gapReduction <= 0 || position === 0 || Math.abs(position) >= 1) {
+    return 0;
+  }
+  const normalizedPosition = Math.abs(position);
+  const switchProgress = normalizedPosition <= 0.5 ? normalizedPosition * 2 : (1 - normalizedPosition) * 2;
+  const offset = Math.round((gapReduction / 2) * switchProgress * 1000) / 1000;
+  return position < 0 ? offset : -offset;
+}
+export function resolveConnectionCardScale(position: number): number {
+  const normalizedPosition = Math.min(1, Math.abs(position));
+  return Math.round((1 - normalizedPosition * 0.35) * 1000) / 1000;
+}
+export function resolveActiveConnectionId(
+  connections: SavedConnection[],
+  activeConnectionId: string,
+  fallbackIndex: number
+): string {
+  if (connections.some((item: SavedConnection) => item.id === activeConnectionId)) {
+    return activeConnectionId;
+  }
+  return resolveConnectionIdByIndex(connections, fallbackIndex);
+}
+export function resolveConnectedTitleOffset(connectionCount: number): number {
+  return connectionCount > 0 ? 10 : 0;
+}
+export function resolveConnectedCardListHorizontalPadding(): number {
+  return 0;
+}
+export function resolveConnectedCardPageHorizontalInset(itemCount: number = 1): number {
+  return 20;
+}
+export function resolveAddConnectionCardOffset(
+  pageHeight: number,
+  cardHeight: number,
+  keyboardGap: number,
+  keyboardHeight: number = 0
+==== 第 14 页 ====
+    title,
+    cwd: normalizeString(body.cwd) || normalizeString(thread?.cwd),
+    status: normalizeStatus(status),
+    turns: normalizeTurns(body.turns !== undefined ? body.turns : thread?.turns)
+  };
+}
+function normalizeTurns(value: ResumeTurn[] | undefined): ResumeTurn[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((turn: ResumeTurn, turnIndex: number) => {
+    const turnId = normalizeString(turn.id) || `turn-${turnIndex + 1}`;
+    const normalized: ResumeTurn = {
+      id: turnId,
+      status: normalizeString(turn.status) || 'unknown',
+      startedAt: normalizeString(turn.startedAt),
+      completedAt: normalizeString(turn.completedAt),
+      items: normalizeItems(turn.items, turnId)
+    };
+    return normalized;
+  }).filter((turn: ResumeTurn) => turn.items.length > 0 || isActiveResumeTurnStatus(turn.status));
+}
+function normalizeItems(value: ResumeContentItem[], turnId: string): ResumeContentItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item: ResumeContentItem, itemIndex: number) => {
+    const normalized: ResumeContentItem = {
+      id: normalizeString(item.id) || `${turnId}:item-${itemIndex + 1}`,
+      role: normalizeString(item.role) || 'system',
+      kind: normalizeString(item.kind) || 'message',
+      text: normalizeString(item.text),
+      status: normalizeString(item.status)
+    };
+    return normalized;
+  }).filter((item: ResumeContentItem) => item.text.length > 0);
+}
+function normalizeString(value: string | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim();
+}
+function normalizeStatus(value: string | ThreadStatus | undefined): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value && typeof value.type === 'string') {
+    return value.type;
+  }
+==== 后段第 14 页 ====
+): number {
+  if (pageHeight <= 0 || cardHeight <= 0) {
+    return 0;
+  }
+  const visibleHeight = keyboardHeight > 0 && pageHeight > keyboardHeight ? pageHeight - keyboardHeight : pageHeight;
+  const centeredTop = (pageHeight - cardHeight) / 2;
+  const safeBottom = visibleHeight - keyboardGap;
+  const centeredBottom = centeredTop + cardHeight;
+  if (centeredBottom <= safeBottom) {
+    return 0;
+  }
+  return safeBottom - centeredBottom;
+}
+export function resolveAddConnectionCardWidth(
+  pageWidth: number,
+  horizontalMargin: number,
+  maxWidth: number
+): number {
+  if (pageWidth <= 0) {
+    return maxWidth;
+  }
+  return Math.max(0, Math.min(maxWidth, pageWidth - horizontalMargin * 2));
+}
+export function resolveAddConnectionMeasuredCardHeight(
+  measuredHeight: number,
+  naturalHeight: number,
+  minimumNaturalHeight: number
+): number {
+  return Math.max(0, measuredHeight, naturalHeight, minimumNaturalHeight);
+}
+export function resolveAddConnectionResponsiveCardOffset(
+  currentPageHeight: number,
+  maxPageHeight: number,
+  cardHeight: number,
+  keyboardGap: number,
+  keyboardHeight: number = 0
+): number {
+  const visiblePageHeight = currentPageHeight > 0 ? currentPageHeight : maxPageHeight;
+  const fullPageHeight = Math.max(maxPageHeight, visiblePageHeight);
+  if (visiblePageHeight > 0 && fullPageHeight > visiblePageHeight) {
+    return resolveAddConnectionCardOffset(visiblePageHeight, cardHeight, keyboardGap, 0);
+  }
+  return resolveAddConnectionCardOffset(fullPageHeight, cardHeight, keyboardGap, keyboardHeight);
+}
+export function updateSavedConnection(
+  connections: SavedConnection[],
+  fields: EditableConnectionFields
+): SavedConnection[] {
+  const nextId = generateSavedConnectionId(fields.host);
+  return sortConnectionsByLastUsed(connections.map((item: SavedConnection) => {
+==== 第 15 页 ====
+  return 'unknown';
+}
+function isActiveResumeTurnStatus(status: string): boolean {
+  return status === 'inProgress' || status === 'running' || status === 'queued' || status === 'in_progress';
+}
+function joinUrl(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}${path}`;
+}
+function ensureSuccess(response: GatewayHttpResponse): void {
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new GatewayHttpError(response.statusCode);
+  }
+}
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
+import { preferences } from '@kit.ArkData';
+import { KeyCode } from '@kit.InputKit';
+import { buffer } from '@kit.ArkTS';
+import { getDeviceId } from '../model/DeviceIdManager';
+import { ensureDeviceKeyPair, signChallenge } from '../model/DeviceKeyManager';
+import {
+  GatewayClient,
+  GatewayHttpError,
+  GatewayNetworkError,
+  HttpGatewayClient,
+  isGatewayAuthenticationError,
+  isGatewayNetworkError,
+  LoginResponse,
+  RenameResumeRequest,
+  ResumeContentItem,
+  ResumeItem,
+  ResumeMutationRequest,
+  ResumeSession,
+  ResumeTurn,
+} from '../api/GatewayClient';
+import {
+  appendSavedConnection,
+  canAddConnection,
+  ConnectionFormErrors,
+  ConnectionStatus,
+  hasConnectionWithSameEndpoint,
+  normalizeServerAddress,
+  resolveCarouselIndex,
+  resolveActiveConnectionId,
+  resolveAddConnectionMeasuredCardHeight,
+  resolveAddConnectionResponsiveCardOffset,
+  ConnectionCarouselSelection,
+  resolveConnectionCardSwitchGapReduction,
+  resolveConnectionCardSwitchOffset,
+  resolveConnectionCardScale,
+==== 后段第 15 页 ====
+    if (item.id !== fields.id) {
+      return item;
+    }
+      return {
+      id: nextId,
+      name: fields.name,
+      agent: fields.agent,
+      host: fields.host,
+      port: fields.port,
+      scheme: fields.scheme,
+      username: fields.username,
+      lastUsedAt: fields.lastUsedAt,
+      status: item.status,
+      accessTokenRef: fields.accessTokenRef !== undefined ? fields.accessTokenRef : item.accessTokenRef,
+      refreshTokenRef: fields.refreshTokenRef !== undefined ? fields.refreshTokenRef : item.refreshTokenRef,
+      privateKeyRef: fields.privateKeyRef !== undefined ? fields.privateKeyRef : item.privateKeyRef
+    };
+  }));
+}
+export function shouldClearConnectionResumeCache(previous: SavedConnection, next: SavedConnection): boolean {
+  return previous.scheme.trim().toLowerCase() !== next.scheme.trim().toLowerCase() ||
+    previous.host.trim().toLowerCase() !== next.host.trim().toLowerCase() ||
+    previous.port !== next.port;
+}
+export function appendSavedConnection(
+  connections: SavedConnection[],
+  connection: SavedConnection
+): SavedConnection[] {
+  if (!canAddConnection(connections) || hasConnectionWithSameEndpoint(connections, connection.scheme,
+    connection.host, connection.port, '')) {
+    return connections;
+  }
+  return sortConnectionsByLastUsed(connections.concat([{
+    id: generateSavedConnectionId(connection.host),
+    name: connection.name,
+    agent: connection.agent,
+    host: connection.host,
+    port: connection.port,
+    scheme: connection.scheme,
+    username: connection.username,
+    lastUsedAt: connection.lastUsedAt,
+    status: connection.status,
+    accessTokenRef: connection.accessTokenRef,
+    refreshTokenRef: connection.refreshTokenRef,
+    privateKeyRef: connection.privateKeyRef
+  }]));
+}
+export function updateSavedConnectionStatus(
+  connections: SavedConnection[],
+  id: string,
+==== 第 16 页 ====
+  resolveConnectionCardTitle,
+  resolveConnectionIndexById,
+  resolveConnectionSelectionBySwiperIndex,
+  shouldClearConnectionResumeCache,
+  resolveConnectionSwiperAutoPlay,
+  resolveConnectionSwiperDisableSwipe,
+  resolveConnectionSwiperItemSpace,
+  resolveConnectionSwiperReleaseIndex,
+  resolveConnectedCardListHorizontalPadding,
+  resolveConnectedTitleOffset,
+  generateSavedConnectionId,
+  resolveConnectionFormErrors,
+  resolveConnectionReadinessError,
+  resolveConnectionSwitchIntent,
+  resolveConnectionName,
+  resolveResumeCountText,
+  resolveResumeCardActionLabel,
+  resolveResumeContentScaledSize,
+  resolveResumeContentInitialZoomScale,
+  resolveResumeContentZoomScale,
+  resolveResumeDiffLineContext,
+  resolveResumeDirectoryText,
+  resolveResumeDiffLineTextStyle,
+  resolveResumeTimestampText,
+  resolveResumeFeedbackAction,
+  shouldApplyConnectionResumeRefresh,
+  shouldShowAgentOutputDot,
+  resolveWaitingResponseText,
+  removeSavedConnection,
+  SavedConnection,
+  sortConnectionsByLastUsed,
+  updateSavedConnection,
+  updateSavedConnectionStatus,
+  visibleResumePreviewCount
+} from '../model/ConnectionModel';
+import { PreferencesConnectionRepository } from '../model/ConnectionRepository';
+enum ConnectionDialog {
+  NONE,
+  ADD,
+  EDIT,
+  RESUME_LIST,
+  RELOGIN,
+  DELETE
+}
+interface ResumeTextSegment {
+  id: string;
+  text: string;
+  style: string;
+}
+interface ResumeKeywordMatch {
+==== 后段第 16 页 ====
+  status: ConnectionStatus,
+  lastUsedAt: string,
+  touchLastUsedAt: boolean
+): SavedConnection[] {
+  return sortConnectionsByLastUsed(connections.map((item: SavedConnection) => {
+    if (item.id !== id) {
+      return item;
+    }
+    return {
+      id: item.id,
+      name: item.name,
+      agent: item.agent,
+      host: item.host,
+      port: item.port,
+      scheme: item.scheme,
+      username: item.username,
+      lastUsedAt: touchLastUsedAt ? lastUsedAt : item.lastUsedAt,
+      status,
+      accessTokenRef: item.accessTokenRef,
+      refreshTokenRef: item.refreshTokenRef,
+      privateKeyRef: item.privateKeyRef
+    };
+  }));
+}
+export function removeSavedConnection(connections: SavedConnection[], id: string): SavedConnection[] {
+  return connections.filter((item: SavedConnection) => item.id !== id);
+}
+export function resolveConnectionFormErrors(
+  address: string,
+  registrationCode: string,
+  requireRegistrationCode: boolean
+): ConnectionFormErrors {
+  const addressError = address.trim().length === 0 ? '请填写服务器地址' : '';
+  const privateKeyError = requireRegistrationCode && registrationCode.trim().length === 0 ? '请填写注册码' : '';
+  return {
+    address: addressError,
+    privateKey: privateKeyError,
+    hasError: addressError.length > 0 || privateKeyError.length > 0
+  };
+}
+export function resolveConnectionReadinessError(connection: SavedConnection): string {
+  if (connection.host.trim().length === 0 || connection.accessTokenRef.trim().length === 0 ||
+    connection.refreshTokenRef.trim().length === 0) {
+    return '请先编辑连接，补全服务器地址。';
+  }
+  return '';
+}
+export function resolveConnectionSwitchIntent(status: ConnectionStatus): ConnectionSwitchIntent {
+  if (status === 'online') {
+    return 'turn_off';
+==== 第 17 页 ====
+  start: number;
+  end: number;
+  style: string;
+}
+interface ResumeMdInlineSegment {
+  id: string;
+  text: string;
+  kind: string;
+  href: string;
+}
+interface ResumeMdBlock {
+  id: string;
+  kind: string;
+  level: number;
+  language: string;
+  text: string;
+  inline: ResumeMdInlineSegment[];
+}
+interface ResumeMdBlockCacheEntry {
+  text: string;
+  blocks: ResumeMdBlock[];
+}
+interface ResumeMdInlineMarker {
+  start: number;
+  end: number;
+  kind: string;
+  content: string;
+  href: string;
+}
+const RESUME_MD_BLOCK_TEXT: string = 'text';
+const RESUME_MD_BLOCK_BOLD: string = 'bold';
+const RESUME_MD_BLOCK_ITALIC: string = 'italic';
+const RESUME_MD_BLOCK_CODE: string = 'code';
+const RESUME_MD_BLOCK_LINK: string = 'link';
+const RESUME_MD_BLOCK_HEADING: string = 'heading';
+const RESUME_MD_BLOCK_LIST: string = 'list';
+const RESUME_MD_BLOCK_QUOTE: string = 'quote';
+const RESUME_MD_BLOCK_DIVIDER: string = 'divider';
+const RESUME_MD_BLOCK_PARAGRAPH: string = 'paragraph';
+function emptyResumeSession(): ResumeSession {
+  return {
+    threadId: '',
+    title: '',
+    cwd: '',
+    status: '',
+    turns: []
+  };
+}
+function appendResumeMdInlineSegment(segments: ResumeMdInlineSegment[], text: string, kind: string, href: string): void {
+  if (text.length === 0) {
+==== 后段第 17 页 ====
+  }
+  if (status === 'needs_login') {
+    return 'require_login';
+  }
+  return 'turn_on_and_show_resumes';
+}
+export function resolveResumeFeedbackAction(
+  status: ConnectionStatus,
+  feedback: string,
+  resumeCount: number
+): ResumeFeedbackAction {
+  if (status === 'needs_login' && feedback.length > 0 && resumeCount === 0) {
+    return 'relogin';
+  }
+  return 'none';
+}
+export function resolveResumeCardActionLabel(status: ConnectionStatus, autoConnectFailed: boolean): string {
+  return autoConnectFailed ? '重新连接' : '新建会话';
+}
+export function shouldApplyConnectionResumeRefresh(
+  requestConnectionId: string,
+  activeConnectionId: string,
+  requestId: number,
+  latestRequestId: number
+): boolean {
+  return requestConnectionId === activeConnectionId && requestId === latestRequestId;
+}
+export function resolveWaitingResponseText(phase: number): string {
+  const normalizedPhase = phase % 4;
+  if (normalizedPhase <= 0) {
+    return '等待回复';
+  }
+  return `等待回复${'.'.repeat(normalizedPhase)}`;
+}
+export function resolveResumeDirectoryText(cwd: string): string {
+  const normalizedCwd = cwd.trim();
+  return normalizedCwd.length > 0 ? normalizedCwd : '~';
+}
+export function resolveResumeContentInitialZoomScale(): number {
+  return 1;
+}
+export function resolveResumeContentZoomScale(baseScale: number, gestureScale: number): number {
+  const normalizedBaseScale = baseScale > 0 ? baseScale : 1;
+  const normalizedGestureScale = gestureScale > 0 ? gestureScale : 1;
+  const scaled = normalizedBaseScale * normalizedGestureScale;
+  const clamped = Math.min(1.2, Math.max(0.8, scaled));
+  return Math.round(clamped * 1000) / 1000;
+}
+export function resolveResumeContentScaledSize(baseSize: number, scale: number): number {
+  const normalizedScale = scale > 0 ? scale : 1;
+==== 第 18 页 ====
+    return;
+  }
+  const lastIndex = segments.length - 1;
+  if (lastIndex >= 0 && segments[lastIndex].kind === kind && segments[lastIndex].href === href) {
+    segments[lastIndex] = {
+      id: segments[lastIndex].id,
+      text: `${segments[lastIndex].text}${text}`,
+      kind,
+      href
+    };
+    return;
+  }
+  segments.push({
+    id: `${segments.length}-${kind}`,
+    text,
+    kind,
+    href
+  });
+}
+function findNextResumeMdBoldMarker(text: string, start: number): ResumeMdInlineMarker {
+  for (let index = start; index < text.length - 1; index++) {
+    if (text.charAt(index) === '*' && text.charAt(index + 1) === '*') {
+      const contentStart = index + 2;
+      const closeIndex = text.indexOf('**', contentStart);
+      if (closeIndex > contentStart) {
+        return {
+          start: index,
+          end: closeIndex + 2,
+          kind: RESUME_MD_BLOCK_BOLD,
+          content: text.substring(contentStart, closeIndex),
+          href: ''
+        };
+      }
+    }
+  }
+  return { start: -1, end: -1, kind: RESUME_MD_BLOCK_TEXT, content: '', href: '' };
+}
+function findNextResumeMdItalicMarker(text: string, start: number): ResumeMdInlineMarker {
+  for (let index = start; index < text.length; index++) {
+    if (text.charAt(index) !== '*') {
+      continue;
+    }
+    if (index + 1 < text.length && text.charAt(index + 1) === '*') {
+      continue;
+    }
+    if (index - 1 >= start && text.charAt(index - 1) === '*') {
+      continue;
+    }
+    const closeIndex = text.indexOf('*', index + 1);
+    if (closeIndex > index + 1 && text.charAt(closeIndex + 1) !== '*') {
+==== 后段第 18 页 ====
+  return Math.round(baseSize * RESUME_CONTENT_BASE_FONT_SCALE * normalizedScale * 1000) / 1000;
+}
+export function resolveResumeTimestampText(timestamp: string): string {
+  const normalizedTimestamp = timestamp.trim();
+  if (normalizedTimestamp.length === 0) {
+    return '';
+  }
+  const parsedTimestamp = Date.parse(normalizedTimestamp);
+  if (parsedTimestamp !== parsedTimestamp) {
+    return '';
+  }
+  const date = new Date(parsedTimestamp);
+  return `${twoDigit(date.getMonth() + 1)}-${twoDigit(date.getDate())} ` +
+    `${twoDigit(date.getHours())}:${twoDigit(date.getMinutes())}`;
+}
+function twoDigit(value: number): string {
+  return value < 10 ? `0${value.toString()}` : value.toString();
+}
+export function resolveResumeDiffLineContext(line: string, inFileDiffContext: boolean): boolean {
+  const normalizedLine = line.trim();
+  if (normalizedLine.length === 0) {
+    return false;
+  }
+  const lowerLine = normalizedLine.toLowerCase();
+  if (lowerLine.startsWith('diff --git ') || lowerLine === '```diff' || lowerLine.startsWith('file ') ||
+    lowerLine.startsWith('file:') || lowerLine.startsWith('文件 ') || lowerLine.startsWith('文件:') ||
+    normalizedLine.startsWith('--- ') || normalizedLine.startsWith('+++ ') || normalizedLine.startsWith('@@')) {
+    return true;
+  }
+  if (!inFileDiffContext) {
+    return false;
+  }
+  const marker = line.charAt(0);
+  return marker === '-' || marker === '+' || marker === ' ' || normalizedLine.startsWith('\\ No newline');
+}
+export function resolveResumeDiffLineTextStyle(
+  line: string,
+  fallbackStyle: string,
+  removedStyle: string,
+  addedStyle: string,
+  inFileDiffContext: boolean = false
+): string {
+  if (line.length === 0 || !inFileDiffContext || line.startsWith('---') || line.startsWith('+++')) {
+    return fallbackStyle;
+  }
+  const marker = line.charAt(0);
+  if (marker === '-') {
+    return removedStyle;
+  }
+  if (marker === '+') {
+==== 第 19 页 ====
+      return {
+        start: index,
+        end: closeIndex + 1,
+        kind: RESUME_MD_BLOCK_ITALIC,
+        content: text.substring(index + 1, closeIndex),
+        href: ''
+      };
+    }
+  }
+  return { start: -1, end: -1, kind: RESUME_MD_BLOCK_TEXT, content: '', href: '' };
+}
+function findNextResumeMdCodeMarker(text: string, start: number): ResumeMdInlineMarker {
+  for (let index = start; index < text.length; index++) {
+    if (text.charAt(index) !== '`') {
+      continue;
+    }
+    const closeIndex = text.indexOf('`', index + 1);
+    if (closeIndex > index + 1) {
+      return {
+        start: index,
+        end: closeIndex + 1,
+        kind: RESUME_MD_BLOCK_CODE,
+        content: text.substring(index + 1, closeIndex),
+        href: ''
+      };
+    }
+  }
+  return { start: -1, end: -1, kind: RESUME_MD_BLOCK_TEXT, content: '', href: '' };
+}
+function findNextResumeMdLinkMarker(text: string, start: number): ResumeMdInlineMarker {
+  for (let index = start; index < text.length; index++) {
+    if (text.charAt(index) !== '[') {
+      continue;
+    }
+    const linkStart = text.indexOf('](', index + 1);
+    if (linkStart < 0) {
+      continue;
+    }
+    const hrefEnd = text.indexOf(')', linkStart + 2);
+    if (hrefEnd < 0) {
+      continue;
+    }
+    const label = text.substring(index + 1, linkStart);
+    const href = text.substring(linkStart + 2, hrefEnd);
+    if (label.length > 0 && href.length > 0) {
+      return {
+        start: index,
+        end: hrefEnd + 1,
+        kind: RESUME_MD_BLOCK_LINK,
+        content: label,
+==== 后段第 19 页 ====
+    return addedStyle;
+  }
+  return fallbackStyle;
+}
+export function resolveResumeCountText(count: number): string {
+  return `${count.toString()} 个`;
+}
+export function visibleResumePreviewCount(totalCount: number): number {
+  if (totalCount <= 0) {
+    return 0;
+  }
+  return totalCount > 4 ? 4 : totalCount;
+}
+export function shouldShowAgentOutputDot(role: string): boolean {
+  const normalizedRole = role.trim().toLowerCase();
+  return normalizedRole === 'assistant' || normalizedRole === 'agent';
+}
+import {
+  canAddConnection,
+  ConnectionStatus,
+  generateSavedConnectionId,
+  MAX_CONNECTIONS,
+  SavedConnection,
+  sortConnectionsByLastUsed
+} from './ConnectionModel';
+import { common } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
+import {
+  decryptConnectionStore,
+  encryptConnectionStore,
+  isEncryptedConnectionStore
+} from './HuksConnectionCrypto';
+const CONNECTION_PREFERENCES_NAME: string = 'codex_router_connections';
+const CONNECTION_PREFERENCES_KEY: string = 'connections';
+interface StoredConnectionsPayload {
+  version?: number;
+  connections?: SavedConnection[];
+}
+export interface ConnectionRepository {
+  list(): SavedConnection[];
+  add(connection: SavedConnection): boolean;
+  update(connection: SavedConnection): boolean;
+  delete(id: string): boolean;
+}
+export class InMemoryConnectionRepository implements ConnectionRepository {
+  private connections: SavedConnection[] = [];
+  list(): SavedConnection[] {
+    return sortConnectionsByLastUsed(this.connections);
+  }
+  add(connection: SavedConnection): boolean {
+==== 第 20 页 ====
+        href
+      };
+    }
+  }
+  return { start: -1, end: -1, kind: RESUME_MD_BLOCK_TEXT, content: '', href: '' };
+}
+function findNextResumeMdInlineMarker(text: string, start: number): ResumeMdInlineMarker {
+  const bold = findNextResumeMdBoldMarker(text, start);
+  const italic = findNextResumeMdItalicMarker(text, start);
+  const code = findNextResumeMdCodeMarker(text, start);
+  const link = findNextResumeMdLinkMarker(text, start);
+  let result = bold;
+  if (result.start < 0 || (italic.start >= 0 && italic.start < result.start)) {
+    result = italic;
+  }
+  if (result.start < 0 || (code.start >= 0 && code.start < result.start)) {
+    result = code;
+  }
+  if (result.start < 0 || (link.start >= 0 && link.start < result.start)) {
+    result = link;
+  }
+  return result;
+}
+function resolveResumeMarkdownInline(text: string): ResumeMdInlineSegment[] {
+  const segments: ResumeMdInlineSegment[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const match = findNextResumeMdInlineMarker(text, cursor);
+    if (match.start < 0) {
+      appendResumeMdInlineSegment(segments, text.substring(cursor), RESUME_MD_BLOCK_TEXT, '');
+      return segments;
+    }
+    if (match.start > cursor) {
+      appendResumeMdInlineSegment(segments, text.substring(cursor, match.start), RESUME_MD_BLOCK_TEXT, '');
+    }
+    appendResumeMdInlineSegment(segments, match.content, match.kind, match.href);
+    cursor = match.end;
+  }
+  return segments;
+}
+function resolveResumeMdHeadingLevel(line: string): number {
+  if (line.startsWith('### ')) {
+    return 3;
+  }
+  if (line.startsWith('## ')) {
+    return 2;
+  }
+  if (line.startsWith('# ')) {
+    return 1;
+  }
+==== 后段第 20 页 ====
+    if (!canAddConnection(this.connections)) {
+      return false;
+    }
+    this.connections = sortConnectionsByLastUsed(this.connections.concat([connection]));
+    return true;
+  }
+  update(connection: SavedConnection): boolean {
+    let found = false;
+    this.connections = this.connections.map((item: SavedConnection) => {
+      if (item.id !== connection.id) {
+        return item;
+      }
+      found = true;
+      return connection;
+    });
+    if (found) {
+      this.connections = sortConnectionsByLastUsed(this.connections);
+    }
+    return found;
+  }
+  delete(id: string): boolean {
+    const before = this.connections.length;
+    this.connections = this.connections.filter((item: SavedConnection) => item.id !== id);
+    return this.connections.length !== before;
+  }
+}
+export interface PersistentConnectionRepository {
+  list(): Promise<SavedConnection[]>;
+  save(connections: SavedConnection[]): Promise<void>;
+}
+export class PreferencesConnectionRepository implements PersistentConnectionRepository {
+  private context: common.Context;
+  private store: preferences.Preferences | null = null;
+  constructor(context: common.Context) {
+    this.context = context;
+  }
+  async list(): Promise<SavedConnection[]> {
+    try {
+      const store = await this.getStore();
+      const saved = await store.get(CONNECTION_PREFERENCES_KEY, '');
+      if (typeof saved !== 'string') {
+        return [];
+      }
+      let plainValue: string;
+      let needsMigration: boolean = false;
+      if (isEncryptedConnectionStore(saved)) {
+        const decrypted = await decryptConnectionStore(saved);
+        if (decrypted === null) {
+          return [];
+        }
+==== 第 21 页 ====
+  return 0;
+}
+function resolveResumeMdListText(line: string): string {
+  const trimmed = line.trim();
+  if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+    return trimmed.substring(2);
+  }
+  const orderedMatch = trimmed.match(new RegExp('^\\d+[.)]\\s+'));
+  if (orderedMatch !== null) {
+    return trimmed.substring(orderedMatch[0].length);
+  }
+  return trimmed;
+}
+function resolveResumeMarkdownBlocks(text: string): ResumeMdBlock[] {
+  const blocks: ResumeMdBlock[] = [];
+  const lines = text.split('\n');
+  let paragraphLines: string[] = [];
+  let blockIndex = 0;
+  const flushParagraph = (): void => {
+    if (paragraphLines.length > 0) {
+      const paragraphText = paragraphLines.join('\n');
+      blocks.push({
+        id: `md-${blockIndex++}-paragraph`,
+        kind: RESUME_MD_BLOCK_PARAGRAPH,
+        level: 0,
+        language: '',
+        text: paragraphText,
+        inline: resolveResumeMarkdownInline(paragraphText)
+      });
+      paragraphLines = [];
+    }
+  };
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      const language = trimmed.substring(3).trim();
+      const codeLines: string[] = [];
+      index++;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index]);
+        index++;
+      }
+      index++;
+      blocks.push({
+        id: `md-${blockIndex++}-code`,
+        kind: RESUME_MD_BLOCK_CODE,
+        level: 0,
+==== 后段第 21 页 ====
+        plainValue = decrypted;
+      } else {
+        plainValue = saved;
+        needsMigration = true;
+      }
+      const connections = deserializeSavedConnections(plainValue);
+      const normalizedSaved = serializeSavedConnections(connections);
+      if (normalizedSaved !== plainValue || needsMigration) {
+        try {
+          await this.save(connections);
+        } catch (error) {
+        }
+      }
+      return connections;
+    } catch (error) {
+      return [];
+    }
+  }
+  async save(connections: SavedConnection[]): Promise<void> {
+    try {
+      const store = await this.getStore();
+      const encrypted = await encryptConnectionStore(serializeSavedConnections(connections));
+      await store.put(CONNECTION_PREFERENCES_KEY, encrypted);
+      await store.flush();
+    } catch (error) {
+      throw new Error('Failed to save connections');
+    }
+  }
+  private async getStore(): Promise<preferences.Preferences> {
+    if (this.store !== null) {
+      return this.store;
+    }
+    try {
+      this.store = await preferences.getPreferences(this.context, CONNECTION_PREFERENCES_NAME);
+      return this.store;
+    } catch (error) {
+      throw new Error('Failed to open connection preferences');
+    }
+  }
+}
+export function serializeSavedConnections(connections: SavedConnection[]): string {
+  const payload: StoredConnectionsPayload = {
+    version: 1,
+    connections: uniqueConnectionHosts(sortConnectionsByLastUsed(connections).map((connection: SavedConnection) => {
+      return normalizeConnectionId(connection);
+    }))
+      .slice(0, MAX_CONNECTIONS)
+  };
+  return JSON.stringify(payload);
+}
+==== 第 22 页 ====
+        language,
+        text: codeLines.join('\n'),
+        inline: []
+      });
+      continue;
+    }
+    const headingLevel = resolveResumeMdHeadingLevel(trimmed);
+    if (headingLevel > 0) {
+      flushParagraph();
+      const headingText = trimmed.substring(headingLevel + 1).trim();
+      blocks.push({
+        id: `md-${blockIndex++}-heading`,
+        kind: RESUME_MD_BLOCK_HEADING,
+        level: headingLevel,
+        language: '',
+        text: headingText,
+        inline: resolveResumeMarkdownInline(headingText)
+      });
+      index++;
+      continue;
+    }
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || new RegExp('^\\d+[.)]\\s+').test(trimmed)) {
+      flushParagraph();
+      const listText = resolveResumeMdListText(trimmed);
+      blocks.push({
+        id: `md-${blockIndex++}-list`,
+        kind: RESUME_MD_BLOCK_LIST,
+        level: 0,
+        language: '',
+        text: listText,
+        inline: resolveResumeMarkdownInline(listText)
+      });
+      index++;
+      continue;
+    }
+    if (trimmed.startsWith('>')) {
+      flushParagraph();
+      const quoteText = trimmed.substring(1).trim();
+      blocks.push({
+        id: `md-${blockIndex++}-quote`,
+        kind: RESUME_MD_BLOCK_QUOTE,
+        level: 0,
+        language: '',
+        text: quoteText,
+        inline: resolveResumeMarkdownInline(quoteText)
+      });
+      index++;
+      continue;
+    }
+    if (trimmed === '---' || trimmed === '***') {
+==== 后段第 22 页 ====
+export function deserializeSavedConnections(value: string): SavedConnection[] {
+  if (value.trim().length === 0) {
+    return [];
+  }
+  try {
+    const payload: StoredConnectionsPayload = JSON.parse(value) as StoredConnectionsPayload;
+    let source: SavedConnection[] = [];
+    if (Array.isArray(payload.connections)) {
+      source = payload.connections as SavedConnection[];
+    }
+    const normalized: SavedConnection[] = [];
+    source.forEach((item: SavedConnection) => {
+      const connection = normalizeStoredConnection(item);
+      if (connection !== null) {
+        normalized.push(connection);
+      }
+    });
+    return uniqueConnectionHosts(sortConnectionsByLastUsed(normalized).map((connection: SavedConnection) => {
+      return normalizeConnectionId(connection);
+    }))
+      .slice(0, MAX_CONNECTIONS);
+  } catch (error) {
+    return [];
+  }
+}
+function normalizeStoredConnection(item: SavedConnection): SavedConnection | null {
+  if (item === null || item === undefined) {
+    return null;
+  }
+  if (typeof item.host !== 'string' || item.host.trim().length === 0) {
+    return null;
+  }
+  const scheme = typeof item.scheme === 'string' && item.scheme.trim().length > 0 ? item.scheme.trim() : 'https';
+  const port = typeof item.port === 'number' && item.port > 0 && item.port <= 65535 ? item.port : 8443;
+  const lastUsedAt = normalizeLastUsedAt(item.lastUsedAt);
+  return normalizeConnectionId({
+    id: typeof item.id === 'string' ? item.id : '',
+    name: typeof item.name === 'string' && item.name.trim().length > 0 ? item.name : item.host,
+    agent: 'OpenCode',
+    host: item.host,
+    port,
+    scheme,
+    username: typeof item.username === 'string' ? item.username : '',
+    lastUsedAt,
+    status: normalizeStoredStatus(item.status),
+    accessTokenRef: typeof item.accessTokenRef === 'string' ? item.accessTokenRef : '',
+    refreshTokenRef: typeof item.refreshTokenRef === 'string' ? item.refreshTokenRef : '',
+    privateKeyRef: typeof item.privateKeyRef === 'string' ? item.privateKeyRef : ''
+  });
+}
+==== 第 23 页 ====
+      flushParagraph();
+      blocks.push({
+        id: `md-${blockIndex++}-divider`,
+        kind: RESUME_MD_BLOCK_DIVIDER,
+        level: 0,
+        language: '',
+        text: '',
+        inline: []
+      });
+      index++;
+      continue;
+    }
+    if (trimmed.length === 0) {
+      flushParagraph();
+      index++;
+      continue;
+    }
+    paragraphLines.push(line);
+    index++;
+  }
+  flushParagraph();
+  return blocks;
+}
+const RESUME_INPUT_GUARD = '\u200B';
+const DEFAULT_RESUME_CWD: string = '~';
+const DARK_MODE_PREFERENCES_NAME: string = 'codex_router_dark_mode';
+const DARK_MODE_PREFERENCES_KEY: string = 'dark_mode';
+const RESUME_COMPOSER_MAX_LINES: number = 4;
+const RESUME_COMPOSER_LINE_HEIGHT: number = 24;
+const RESUME_COMPOSER_BASE_HEIGHT: number = 20;
+const PHONE_CARD_MARGIN: number = 16;
+const TABLET_CARD_MARGIN: number = 48;
+const PC_CARD_MARGIN: number = 80;
+const PHONE_RESUME_PANEL_MARGIN: number = 16;
+const TABLET_RESUME_PANEL_MARGIN: number = 48;
+const PC_RESUME_PANEL_MARGIN: number = 80;
+const TABLET_CARD_MAX_WIDTH: number = 520;
+const PC_CARD_MAX_WIDTH: number = 600;
+const TABLET_RESUME_PANEL_MAX_WIDTH: number = 700;
+const PC_RESUME_PANEL_MAX_WIDTH: number = 800;
+const RESUME_PREVIEW_ROW_HEIGHT: number = 51.3;
+const RESUME_PREVIEW_ROW_GAP: number = 6;
+const RESUME_LIST_ROW_GAP: number = 6;
+const RESUME_AGENT_OUTPUT_DOT_SIZE: number = 5.2;
+const RESUME_AGENT_OUTPUT_DOT_OFFSET_X: number = -9.6;
+const RESUME_AGENT_OUTPUT_DOT_TRAILING_MARGIN: number = -8.4;
+const CARD_AUTO_CONNECT_MAX_ATTEMPTS: number = 3;
+const ADD_CONNECTION_KEYBOARD_GAP: number = 60;
+const ADD_CONNECTION_CARD_MIN_NATURAL_HEIGHT: number = 438;
+const CONNECTION_CARD_SWIPER_DURATION_MS: number = 300;
+==== 后段第 23 页 ====
+function normalizeStoredStatus(status: ConnectionStatus): ConnectionStatus {
+  if (status === 'needs_login') {
+    return 'needs_login';
+  }
+  return 'offline';
+}
+function normalizeLastUsedAt(value: string): string {
+  if (typeof value !== 'string') {
+    return '1970-01-01T00:00:00.000Z';
+  }
+  const parsedAt = Date.parse(value);
+  if (parsedAt !== parsedAt) {
+    return '1970-01-01T00:00:00.000Z';
+  }
+  return value;
+}
+function normalizeConnectionId(connection: SavedConnection): SavedConnection {
+  return {
+    id: generateSavedConnectionId(connection.host),
+    name: connection.name,
+    agent: connection.agent,
+    host: connection.host,
+    port: connection.port,
+    scheme: connection.scheme,
+    username: connection.username,
+    lastUsedAt: connection.lastUsedAt,
+    status: connection.status,
+    accessTokenRef: connection.accessTokenRef,
+    refreshTokenRef: connection.refreshTokenRef,
+    privateKeyRef: connection.privateKeyRef
+  };
+}
+function uniqueConnectionHosts(connections: SavedConnection[]): SavedConnection[] {
+  const hosts: string[] = [];
+  const result: SavedConnection[] = [];
+  connections.forEach((connection: SavedConnection) => {
+    const host = `${'OpenCode'}:${connection.host.trim().toLowerCase()}`;
+    if (hosts.indexOf(host) >= 0) {
+      return;
+    }
+    hosts.push(host);
+    result.push(connection);
+  });
+  return result;
+}
+import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+const DEVICE_ID_PREFS_NAME: string = 'ai_router_device';
+const DEVICE_ID_PREFS_KEY: string = 'device_id';
+let cachedDeviceId: string = '';
+==== 第 24 页 ====
+const TERMINAL_FONT_FAMILY: string = 'HarmonyOS-Sans';
+const TERMINAL_BACKGROUND_COLOR: Resource = $r('app.color.terminal_background');
+const TERMINAL_PANEL_COLOR: Resource = $r('app.color.terminal_panel');
+const TERMINAL_PANEL_ELEVATED_COLOR: Resource = $r('app.color.terminal_panel_elevated');
+const TERMINAL_ROW_COLOR: Resource = $r('app.color.terminal_row');
+const TERMINAL_INPUT_COLOR: Resource = $r('app.color.terminal_input');
+const TERMINAL_TOOLBAR_COLOR: Resource = $r('app.color.terminal_toolbar');
+const TERMINAL_TRANSCRIPT_COLOR: Resource = $r('app.color.terminal_transcript');
+const TERMINAL_BORDER_COLOR: Resource = $r('app.color.terminal_border');
+const TERMINAL_BORDER_STRONG_COLOR: Resource = $r('app.color.terminal_border_strong');
+const TERMINAL_SUBTLE_BORDER_COLOR: Resource = $r('app.color.terminal_subtle_border');
+const TERMINAL_TEXT_COLOR: Resource = $r('app.color.terminal_text');
+const TERMINAL_MUTED_TEXT_COLOR: Resource = $r('app.color.terminal_muted_text');
+const TERMINAL_DIM_TEXT_COLOR: Resource = $r('app.color.terminal_dim_text');
+const TERMINAL_ACCENT_COLOR: Resource = $r('app.color.terminal_accent');
+const TERMINAL_ACCENT_TEXT_COLOR: Resource = $r('app.color.terminal_accent_text');
+const TERMINAL_RENAME_BUTTON_COLOR: Resource = $r('app.color.terminal_rename_button');
+const TERMINAL_RENAME_BUTTON_TEXT_COLOR: Resource = $r('app.color.terminal_rename_button_text');
+const TERMINAL_GREEN_COLOR: Resource = $r('app.color.terminal_green');
+const TERMINAL_BLUE_COLOR: Resource = $r('app.color.terminal_blue');
+const TERMINAL_AMBER_COLOR: Resource = $r('app.color.terminal_amber');
+const TERMINAL_RED_COLOR: Resource = $r('app.color.terminal_red');
+const TERMINAL_BUTTON_SECONDARY_COLOR: Resource = $r('app.color.terminal_button_secondary');
+const TERMINAL_BUTTON_NEUTRAL_COLOR: Resource = $r('app.color.terminal_button_neutral');
+const TERMINAL_CANCEL_BUTTON_COLOR: Resource = $r('app.color.terminal_cancel_button');
+const TERMINAL_DANGER_SURFACE_COLOR: Resource = $r('app.color.terminal_danger_surface');
+const TERMINAL_DANGER_TEXT_COLOR: Resource = $r('app.color.terminal_danger_text');
+const TERMINAL_SUCCESS_SURFACE_COLOR: Resource = $r('app.color.terminal_success_surface');
+const TERMINAL_SUCCESS_TEXT_COLOR: Resource = $r('app.color.terminal_success_text');
+const TERMINAL_NOTICE_SURFACE_COLOR: Resource = $r('app.color.terminal_notice_surface');
+const TERMINAL_NOTICE_BORDER_COLOR: Resource = $r('app.color.terminal_notice_border');
+const TERMINAL_SHADOW_COLOR: Resource = $r('app.color.terminal_shadow');
+const TERMINAL_CARD_SHADOW_COLOR: Resource = $r('app.color.terminal_card_shadow');
+const TERMINAL_DIALOG_SHADOW_COLOR: Resource = $r('app.color.terminal_dialog_shadow');
+const TERMINAL_FLOATING_SHADOW_COLOR: Resource = $r('app.color.terminal_floating_shadow');
+const TERMINAL_ACCENT_GLOW_COLOR: Resource = $r('app.color.terminal_accent_glow');
+const TERMINAL_ACCENT_CARD_GLOW_COLOR: Resource = $r('app.color.terminal_accent_card_glow');
+const TERMINAL_LABEL_COLOR: Resource = $r('app.color.terminal_label');
+const TERMINAL_DIALOG_TITLE_COLOR: Resource = $r('app.color.terminal_dialog_title');
+const TERMINAL_APP_TITLE_COLOR: Resource = $r('app.color.terminal_app_title');
+const TERMINAL_SECTION_TITLE_COLOR: Resource = $r('app.color.terminal_section_title');
+const TERMINAL_RESUME_TITLE_COLOR: Resource = $r('app.color.terminal_resume_title');
+const TERMINAL_USER_MESSAGE_SURFACE_COLOR: Resource = $r('app.color.terminal_user_message_surface');
+const TERMINAL_WAITING_MESSAGE_SURFACE_COLOR: Resource = $r('app.color.terminal_waiting_message_surface');
+const TERMINAL_USER_BODY_TEXT_COLOR: Resource = $r('app.color.terminal_user_body_text');
+const TERMINAL_REASONING_BODY_TEXT_COLOR: Resource = $r('app.color.terminal_reasoning_body_text');
+const TERMINAL_TOOL_BODY_TEXT_COLOR: Resource = $r('app.color.terminal_tool_body_text');
+const TERMINAL_INLINE_CODE_COLOR: Resource = $r('app.color.terminal_inline_code');
+const TERMINAL_INLINE_PATH_COLOR: Resource = $r('app.color.terminal_inline_path');
+const TERMINAL_CODE_BLOCK_BACKGROUND_COLOR: Resource = $r('app.color.terminal_code_block_background');
+==== 后段第 24 页 ====
+function generateUUID(): string {
+  const chars = '0123456789abcdef';
+  let uuid = '';
+  for (let i = 0; i < 36; i++) {
+    if (i === 8 || i === 13 || i === 18 || i === 23) {
+      uuid += '-';
+    } else {
+      const randomIndex = Math.floor(Math.random() * 16);
+      uuid += chars.charAt(randomIndex);
+    }
+  }
+  return uuid;
+}
+export async function getDeviceId(context: common.Context): Promise<string> {
+  if (cachedDeviceId.length > 0) {
+    return cachedDeviceId;
+  }
+  try {
+    const store = await preferences.getPreferences(context, DEVICE_ID_PREFS_NAME);
+    const saved = await store.get(DEVICE_ID_PREFS_KEY, '');
+    if (typeof saved === 'string' && saved.trim().length > 0) {
+      cachedDeviceId = saved.trim();
+      return cachedDeviceId;
+    }
+  } catch (error) {
+  }
+  const newId = generateUUID();
+  cachedDeviceId = newId;
+  try {
+    const store = await preferences.getPreferences(context, DEVICE_ID_PREFS_NAME);
+    await store.put(DEVICE_ID_PREFS_KEY, newId);
+    await store.flush();
+  } catch (error) {
+  }
+  return newId;
+}
+import { huks } from '@kit.UniversalKeystoreKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+const KEY_ALIAS: string = 'ai_router_device_auth';
+function stringToUint8Array(str: string): Uint8Array {
+  const result: number[] = [];
+  for (let i = 0; i < str.length; i++) {
+    result.push(str.charCodeAt(i) & 0xff);
+  }
+  return new Uint8Array(result);
+}
+function uint8ArrayToBase64(data: Uint8Array): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  for (let i = 0; i < data.length; i += 3) {
+==== 第 25 页 ====
+const TERMINAL_CODE_BLOCK_BORDER_COLOR: Resource = $r('app.color.terminal_code_block_border');
+const TERMINAL_HEADING_COLOR: Resource = $r('app.color.terminal_heading');
+const TERMINAL_QUOTE_BORDER_COLOR: Resource = $r('app.color.terminal_quote_border');
+const TERMINAL_LINK_COLOR: Resource = $r('app.color.terminal_link');
+const TERMINAL_TRANSPARENT_COLOR: Resource = $r('app.color.terminal_transparent');
+const RESUME_TEXT_STYLE_USER: string = 'user';
+const RESUME_TEXT_STYLE_ASSISTANT: string = 'assistant';
+const RESUME_TEXT_STYLE_REASONING: string = 'reasoning';
+const RESUME_TEXT_STYLE_TOOL: string = 'tool';
+const RESUME_TEXT_STYLE_CODE: string = 'code';
+const RESUME_TEXT_STYLE_PATH: string = 'path';
+const RESUME_TEXT_STYLE_SUCCESS: string = 'success';
+const RESUME_TEXT_STYLE_WARNING: string = 'warning';
+const RESUME_TEXT_STYLE_DANGER: string = 'danger';
+const RESUME_DANGER_TOKENS: string[] = [
+  'error', 'failed', 'failure', 'fatal', 'exception', 'denied', 'timeout',
+  '失败', '错误', '异常', '拒绝', '超时'
+];
+const RESUME_WARNING_TOKENS: string[] = [
+  'warning', 'warn', 'deprecated', 'skipped', 'skip',
+  '警告', '跳过'
+];
+const RESUME_SUCCESS_TOKENS: string[] = [
+  'success', 'successful', 'completed', 'done',
+  '成功', '完成', '通过'
+];
+@Component
+export struct ConnectionHome {
+  @Link @Watch('handleBackRequestTokenChange') backRequestToken: number;
+  @State private connections: SavedConnection[] = [];
+  @State private dialog: ConnectionDialog = ConnectionDialog.NONE;
+  @State private selectedConnectionId: string = '';
+  @State private deleteConnectionId: string = '';
+  @State private reloginConnectionId: string = '';
+  @State private draftAddress: string = '';
+  @State private draftUsername: string = '';
+  @State private draftPassword: string = 'huaweI1234';
+  @State private draftName: string = '';
+  @State private feedback: string = '';
+  @State private dialogFeedback: string = '';
+  @State private addressFeedback: string = '';
+  @State private usernameFeedback: string = '';
+  @State private passwordFeedback: string = '';
+  @State private connectionSubmitting: boolean = false;
+  @State private testingConnection: boolean = false;
+  @State private connectionTestResult: string = '';
+  @State private connectionTestPassed: boolean = false;
+  @State private swipedConnectionId: string = '';
+  @State private activeConnectionId: string = '';
+  @State private activeConnectionIndex: number = 0;
+==== 后段第 25 页 ====
+    const b0 = data[i];
+    const b1 = i + 1 < data.length ? data[i + 1] : 0;
+    const b2 = i + 2 < data.length ? data[i + 2] : 0;
+    result += chars.charAt(b0 >> 2);
+    result += chars.charAt(((b0 & 3) << 4) | (b1 >> 4));
+    result += i + 1 < data.length ? chars.charAt(((b1 & 15) << 2) | (b2 >> 6)) : '=';
+    result += i + 2 < data.length ? chars.charAt(b2 & 63) : '=';
+  }
+  return result;
+}
+function wrapDerInPem(derData: Uint8Array): string {
+  const b64 = uint8ArrayToBase64(derData);
+  const lines: string[] = [];
+  for (let i = 0; i < b64.length; i += 64) {
+    lines.push(b64.substring(i, i + 64));
+  }
+  return `-----BEGIN PUBLIC KEY-----\n${lines.join('\n')}\n-----END PUBLIC KEY-----`;
+}
+function buildEd25519SpkiDer(rawPublicKey: Uint8Array): Uint8Array {
+  let keyBytes = rawPublicKey;
+  if (keyBytes.length === 33 && keyBytes[0] === 0x00) {
+    keyBytes = keyBytes.slice(1);
+  }
+  const algorithmId = new Uint8Array([0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70]);
+  const bitStringValue = new Uint8Array(1 + keyBytes.length);
+  bitStringValue[0] = 0x00;
+  bitStringValue.set(keyBytes, 1);
+  const bitString = new Uint8Array(2 + bitStringValue.length);
+  bitString[0] = 0x03;
+  bitString[1] = bitStringValue.length;
+  bitString.set(bitStringValue, 2);
+  const contentLen = algorithmId.length + bitString.length;
+  const sequence = new Uint8Array(2 + contentLen);
+  sequence[0] = 0x30;
+  sequence[1] = contentLen;
+  sequence.set(algorithmId, 2);
+  sequence.set(bitString, 2 + algorithmId.length);
+  return sequence;
+}
+function getGenerateProperties(): huks.HuksParam[] {
+  const properties: huks.HuksParam[] = [
+    {
+      tag: huks.HuksTag.HUKS_TAG_ALGORITHM,
+      value: huks.HuksKeyAlg.HUKS_ALG_ED25519
+    },
+    {
+      tag: huks.HuksTag.HUKS_TAG_PURPOSE,
+      value: huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_SIGN | huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_VERIFY
+    },
+    {
+==== 第 26 页 ====
+  @State private connectionCardScrollPositions: number[] = [];
+  @State private resumes: ResumeItem[] = [];
+  @State private resumesConnectionId: string = '';
+  @State private resumesLoading: boolean = false;
+  @State private resumesFeedback: string = '';
+  @State private autoConnectingConnectionId: string = '';
+  @State private autoConnectFailedConnectionId: string = '';
+  @State private resumeActionFeedback: string = '';
+  @State private resumeCenterNotice: string = '';
+  @State private openingResumeId: string = '';
+  @State private resumeActionMenuId: string = '';
+  @State private connectionActionMenuId: string = '';
+  @State private suppressNextCardActionClick: boolean = false;
+  @State private resumeMutatingId: string = '';
+  @State private resumeRenamingId: string = '';
+  @State private resumeRenameDraft: string = '';
+  @State private resumeStarting: boolean = false;
+  @State private hasActiveResumeSession: boolean = false;
+  @State private activeResumeSession: ResumeSession = emptyResumeSession();
+  @State private resumeMessageDraft: string = '';
+  @State private resumeMessageSending: boolean = false;
+  @State private pendingResumeMessage: string = '';
+  @State private pendingResumeMessageTimestamp: string = '';
+  @State private resumeComposerVisible: boolean = true;
+  @State private resumeDarkMode: boolean = false;
+  @State private resumeContentZoomScale: number = 1;
+  @State private waitingDotsPhase: number = 0;
+  @State private resumeRefreshToken: number = 0;
+  @State private addConnectionPageHeight: number = 0;
+  @State private addConnectionCardHeight: number = 0;
+  @State private addConnectionNaturalCardHeight: number = 0;
+  @State private addConnectionScreenHeight: number = 0;
+  @State private addConnectionPageWidth: number = 0;
+  @StorageLink('aiRouterKeyboardHeightPx') private keyboardHeightPx: number = 0;
+  private gatewayClient: GatewayClient = new HttpGatewayClient();
+  private certContentLoaded: boolean = false;
+  private deviceId: string = '';
+  private connectionRepository: PreferencesConnectionRepository | null = null;
+  private persistConnectionsQueue: Promise<void> = Promise.resolve();
+  private resumeContentScroller: Scroller = new Scroller();
+  private connectionSwiperController: SwiperController = new SwiperController();
+  private waitingDotsTimer: number = -1;
+  private resumeAutoRefreshTimer: number = -1;
+  private resumeCenterNoticeTimer: number = -1;
+  private resumePageTapTimer: number = -1;
+  private cardActionClickSuppressTimer: number = -1;
+  private resumePinchStartScale: number = 1;
+  private connectionResumeRefreshId: number = 0;
+  private connectionResumePrefetchId: number = 0;
+  private connectionResumePrefetchIds: Map<string, number> = new Map();
+==== 后段第 26 页 ====
+      tag: huks.HuksTag.HUKS_TAG_KEY_SIZE,
+      value: huks.HuksKeySize.HUKS_CURVE25519_KEY_SIZE_256
+    }
+  ];
+  return properties;
+}
+function getSignProperties(): huks.HuksParam[] {
+  const properties: huks.HuksParam[] = [
+    {
+      tag: huks.HuksTag.HUKS_TAG_ALGORITHM,
+      value: huks.HuksKeyAlg.HUKS_ALG_ED25519
+    },
+    {
+      tag: huks.HuksTag.HUKS_TAG_PURPOSE,
+      value: huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_SIGN
+    }
+  ];
+  return properties;
+}
+async function generateKey(): Promise<void> {
+  const options: huks.HuksOptions = {
+    properties: getGenerateProperties()
+  };
+  try {
+    await huks.generateKeyItem(KEY_ALIAS, options);
+  } catch (error) {
+    throw new Error('Failed to generate device key');
+  }
+}
+async function signData(data: Uint8Array): Promise<Uint8Array> {
+  const options: huks.HuksOptions = {
+    properties: getSignProperties(),
+    inData: data
+  };
+  try {
+    const sessionResult = await huks.initSession(KEY_ALIAS, options);
+    const finishResult = await huks.finishSession(sessionResult.handle, options);
+    return finishResult.outData as Uint8Array;
+  } catch (error) {
+    throw new Error('Failed to sign data');
+  }
+}
+async function exportPublicKeyDer(): Promise<Uint8Array> {
+  const emptyOptions: huks.HuksOptions = {
+    properties: []
+  };
+  try {
+    const result = await huks.exportKeyItem(KEY_ALIAS, emptyOptions);
+    return result.outData as Uint8Array;
+  } catch (error) {
+==== 第 27 页 ====
+  private connectionSwiperReleasePosition: number = 0;
+  private connectionSwiperEarlyReleaseTargetIndex: number = -1;
+  private connectionSwiperPrefetchedTargetId: string = '';
+  private addConnectionRequestId: number = 0;
+  private resumeWasWaitingForResponse: boolean = false;
+  private resumeShouldFollowOutput: boolean = true;
+  private resumeScrollAwayVersion: number = 0;
+  private resumeJustSent: boolean = false;
+  private resumeStopRequested: boolean = false;
+  private resumesCache: Map<string, ResumeItem[]> = new Map();
+  private deviceType: string = deviceInfo.deviceType;
+  aboutToAppear(): void {
+    this.updateBackAvailability();
+    this.loadDarkModePreference();
+    this.loadCertContent();
+    this.loadSavedConnections();
+    this.loadDeviceId();
+  }
+  private async loadDarkModePreference(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    try {
+      const store = await preferences.getPreferences(context as common.Context, DARK_MODE_PREFERENCES_NAME);
+      const saved = await store.get(DARK_MODE_PREFERENCES_KEY, '');
+      if (typeof saved !== 'string') {
+        this.applyResumeDarkMode(false);
+        return;
+      }
+      if (saved === 'dark') {
+        this.resumeDarkMode = true;
+      } else if (saved === 'light') {
+        this.resumeDarkMode = false;
+      } else {
+        const abilityContext = context as common.UIAbilityContext;
+        this.resumeDarkMode = abilityContext.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      }
+      this.applyResumeDarkMode(this.resumeDarkMode);
+    } catch (error) {
+      this.applyResumeDarkMode(false);
+    }
+  }
+  private applyResumeDarkMode(dark: boolean): void {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    try {
+      context.getApplicationContext().setColorMode(dark
+==== 后段第 27 页 ====
+    throw new Error('Failed to export device public key');
+  }
+}
+export interface DeviceKeyPair {
+  publicKeyPem: string;
+}
+let cachedKeyPair: DeviceKeyPair | null = null;
+export async function ensureDeviceKeyPair(): Promise<DeviceKeyPair> {
+  if (cachedKeyPair !== null) {
+    return cachedKeyPair;
+  }
+  let rawKey: Uint8Array;
+  try {
+    rawKey = await exportPublicKeyDer();
+  } catch {
+    await generateKey();
+    rawKey = await exportPublicKeyDer();
+  }
+  const spkiDer = buildEd25519SpkiDer(rawKey);
+  const publicKeyPem = wrapDerInPem(spkiDer);
+  cachedKeyPair = { publicKeyPem };
+  return cachedKeyPair;
+}
+export async function signChallenge(challenge: string): Promise<string> {
+  const data = stringToUint8Array(challenge);
+  const sig = await signData(data);
+  return uint8ArrayToBase64(sig);
+}
+import { huks } from '@kit.UniversalKeystoreKit';
+import { buffer, util } from '@kit.ArkTS';
+const CONNECTION_KEY_ALIAS: string = 'codex_router_connection_store_key';
+const ENCRYPTED_STORE_PREFIX: string = 'ENC1:';
+const GCM_TAG_LENGTH: number = 16;
+const GCM_NONCE_LENGTH: number = 12;
+function connectionKeyParams(): huks.HuksParam[] {
+  return [
+    { tag: huks.HuksTag.HUKS_TAG_ALGORITHM, value: huks.HuksKeyAlg.HUKS_ALG_AES },
+    { tag: huks.HuksTag.HUKS_TAG_KEY_SIZE, value: huks.HuksKeySize.HUKS_AES_KEY_SIZE_256 },
+    {
+      tag: huks.HuksTag.HUKS_TAG_PURPOSE,
+      value: huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_ENCRYPT | huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_DECRYPT
+    },
+    { tag: huks.HuksTag.HUKS_TAG_PADDING, value: huks.HuksKeyPadding.HUKS_PADDING_NONE },
+    { tag: huks.HuksTag.HUKS_TAG_BLOCK_MODE, value: huks.HuksCipherMode.HUKS_MODE_GCM }
+  ];
+}
+function cipherParams(purpose: huks.HuksKeyPurpose, nonce: Uint8Array | null, tag: Uint8Array | null): huks.HuksParam[] {
+  const params: huks.HuksParam[] = [
+    { tag: huks.HuksTag.HUKS_TAG_ALGORITHM, value: huks.HuksKeyAlg.HUKS_ALG_AES },
+    { tag: huks.HuksTag.HUKS_TAG_KEY_SIZE, value: huks.HuksKeySize.HUKS_AES_KEY_SIZE_256 },
+==== 第 28 页 ====
+        ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+        : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+    } catch (error) {
+    }
+  }
+  private toggleResumeDarkMode(): void {
+    this.resumeDarkMode = !this.resumeDarkMode;
+    this.applyResumeDarkMode(this.resumeDarkMode);
+    this.persistResumeDarkMode(this.resumeDarkMode);
+  }
+  private async persistResumeDarkMode(dark: boolean): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    try {
+      const store = await preferences.getPreferences(context as common.Context, DARK_MODE_PREFERENCES_NAME);
+      await store.put(DARK_MODE_PREFERENCES_KEY, dark ? 'dark' : 'light');
+      await store.flush();
+    } catch (error) {
+    }
+  }
+  private async loadDeviceId(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    this.deviceId = await getDeviceId(context);
+  }
+  private async loadCertContent(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      console.error('[ConnectionHome] loadCertContent: hostContext is undefined');
+      return;
+    }
+    try {
+      const certFile: Uint8Array = await context.resourceManager.getRawFileContent('codex-router-cert.pem');
+      const certContent: string = buffer.from(certFile.buffer).toString();
+      console.info(`[ConnectionHome] loadCertContent: cert loaded, length=${certContent.length}`);
+      this.gatewayClient = HttpGatewayClient.createWithCert(certContent);
+      this.certContentLoaded = true;
+      console.info('[ConnectionHome] loadCertContent: gatewayClient updated with cert');
+    } catch (error) {
+      console.error(`[ConnectionHome] Failed to load cert: ${JSON.stringify(error)}`);
+      console.error(`[ConnectionHome] certContentLoaded remains: ${this.certContentLoaded}`);
+    }
+  }
+  private isTabletOrPC(): boolean {
+    return this.deviceType === 'tablet' || this.deviceType === '2in1' || this.deviceType === 'default';
+  }
+==== 后段第 28 页 ====
+    { tag: huks.HuksTag.HUKS_TAG_PURPOSE, value: purpose },
+    { tag: huks.HuksTag.HUKS_TAG_PADDING, value: huks.HuksKeyPadding.HUKS_PADDING_NONE },
+    { tag: huks.HuksTag.HUKS_TAG_BLOCK_MODE, value: huks.HuksCipherMode.HUKS_MODE_GCM }
+  ];
+  if (nonce !== null) {
+    params.push({ tag: huks.HuksTag.HUKS_TAG_NONCE, value: nonce });
+  }
+  if (tag !== null) {
+    params.push({ tag: huks.HuksTag.HUKS_TAG_AE_TAG, value: tag });
+  }
+  return params;
+}
+async function ensureConnectionKey(): Promise<void> {
+  try {
+    await huks.generateKeyItem(CONNECTION_KEY_ALIAS, { properties: connectionKeyParams() });
+  } catch (error) {
+  }
+}
+function utf8Encode(value: string): Uint8Array {
+  const textEncoder = new util.TextEncoder();
+  return textEncoder.encodeInto(value);
+}
+function utf8Decode(value: Uint8Array): string {
+  const textDecoder = new util.TextDecoder('utf-8');
+  return textDecoder.decodeToString(value);
+}
+function copyBufferToBytes(value: buffer.Buffer): Uint8Array {
+  const bytes = new Uint8Array(value.length);
+  for (let i = 0; i < value.length; i++) {
+    bytes[i] = value[i];
+  }
+  return bytes;
+}
+export function isEncryptedConnectionStore(storedValue: string): boolean {
+  return storedValue.startsWith(ENCRYPTED_STORE_PREFIX);
+}
+export async function encryptConnectionStore(plainText: string): Promise<string> {
+  try {
+    const options: huks.HuksOptions = {
+      properties: cipherParams(huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_ENCRYPT, null, null),
+      inData: utf8Encode(plainText)
+    };
+    await ensureConnectionKey();
+    const handle = await huks.initSession(CONNECTION_KEY_ALIAS, options);
+    const finish = await huks.finishSession(handle.handle, options);
+    const outData = finish.outData;
+    if (outData === undefined || outData.length === 0) {
+      throw new Error('Failed to encrypt connection store');
+    }
+    return ENCRYPTED_STORE_PREFIX + buffer.from(outData).toString('base64');
+==== 第 29 页 ====
+  private getCardMargin(): number {
+    if (this.deviceType === '2in1' || this.deviceType === 'default') {
+      return PC_CARD_MARGIN;
+    }
+    if (this.deviceType === 'tablet') {
+      return TABLET_CARD_MARGIN;
+    }
+    return PHONE_CARD_MARGIN;
+  }
+  private getCardMaxWidth(): number {
+    if (this.deviceType === '2in1' || this.deviceType === 'default') {
+      return PC_CARD_MAX_WIDTH;
+    }
+    if (this.deviceType === 'tablet') {
+      return TABLET_CARD_MAX_WIDTH;
+    }
+    return 9999;
+  }
+  private getResumePanelMargin(): number {
+    if (this.deviceType === '2in1' || this.deviceType === 'default') {
+      return PC_RESUME_PANEL_MARGIN;
+    }
+    if (this.deviceType === 'tablet') {
+      return TABLET_RESUME_PANEL_MARGIN;
+    }
+    return PHONE_RESUME_PANEL_MARGIN;
+  }
+  private getResumePanelMaxWidth(): number {
+    if (this.deviceType === '2in1' || this.deviceType === 'default') {
+      return PC_RESUME_PANEL_MAX_WIDTH;
+    }
+    if (this.deviceType === 'tablet') {
+      return TABLET_RESUME_PANEL_MAX_WIDTH;
+    }
+    return 9999;
+  }
+  aboutToDisappear(): void {
+    this.stopResumeWaitingIndicator();
+    this.stopResumeAutoRefresh();
+    this.clearResumePageTapTimer();
+    this.clearCardActionClickSuppression();
+    this.clearResumeCenterNotice();
+  }
+  private handleBackRequestTokenChange(): void {
+    this.handlePageBack();
+  }
+  private updateBackAvailability(): void {
+    AppStorage.setOrCreate<boolean>('codexRouterCanBack', this.canBackInApp());
+  }
+  private async loadSavedConnections(): Promise<void> {
+==== 后段第 29 页 ====
+  } catch (error) {
+    throw new Error('Failed to encrypt connection store');
+  }
+}
+export async function decryptConnectionStore(storedValue: string): Promise<string | null> {
+  if (!isEncryptedConnectionStore(storedValue)) {
+    return null;
+  }
+  let blob: Uint8Array;
+  try {
+    const decoded = buffer.from(storedValue.substring(ENCRYPTED_STORE_PREFIX.length), 'base64');
+    blob = copyBufferToBytes(decoded);
+  } catch (error) {
+    return null;
+  }
+  const minimumLength: number = GCM_NONCE_LENGTH + GCM_TAG_LENGTH;
+  if (blob.length < minimumLength) {
+    return null;
+  }
+  const nonce = blob.subarray(blob.length - GCM_NONCE_LENGTH);
+  const tag = blob.subarray(blob.length - GCM_NONCE_LENGTH - GCM_TAG_LENGTH, blob.length - GCM_NONCE_LENGTH);
+  const cipher = blob.subarray(0, blob.length - GCM_NONCE_LENGTH - GCM_TAG_LENGTH);
+  const options: huks.HuksOptions = {
+    properties: cipherParams(huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_DECRYPT, nonce, tag),
+    inData: cipher
+  };
+  try {
+    const handle = await huks.initSession(CONNECTION_KEY_ALIAS, options);
+    const finish = await huks.finishSession(handle.handle, options);
+    const outData = finish.outData;
+    if (outData === undefined || outData.length === 0) {
+      return null;
+    }
+    return utf8Decode(outData);
+  } catch (error) {
+    return null;
+  }
+}
+import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { ConnectionHome } from '../components/ConnectionHome';
+const SPLASH_KLEIN_BLUE: string = '#002FA7';
+@Entry
+@Component
+struct Index {
+  @State private backRequestToken: number = 0;
+  @State private splashVisible: boolean = true;
+  @State private splashLight: boolean = false;
+  private splashTimer: number = -1;
+  private splashHideTimer: number = -1;
+  aboutToAppear(): void {
+==== 第 30 页 ====
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      this.feedback = '无法读取本地连接';
+      return;
+    }
+    this.connectionRepository = new PreferencesConnectionRepository(context as common.Context);
+    try {
+      this.connections = await this.connectionRepository.list();
+      this.keepActiveConnectionInBounds();
+      this.loadActiveConnectionResumes();
+    } catch (error) {
+      this.feedback = '无法读取本地连接';
+    }
+  }
+  private persistConnections(): void {
+    if (this.connectionRepository === null) {
+      return;
+    }
+    const snapshot = this.connections.slice();
+    this.persistConnectionsQueue = this.persistConnectionsQueue.then(() => {
+      if (this.connectionRepository === null) {
+        return Promise.resolve();
+      }
+      return this.connectionRepository.save(snapshot);
+    }).catch(() => {
+      this.feedback = '保存连接失败';
+    });
+  }
+  private selectedConnection(): SavedConnection {
+    const found = this.connectionById(this.selectedConnectionId);
+    if (found) {
+      return found;
+    }
+    return {
+      id: '',
+      name: '',
+      agent: 'OpenCode',
+      host: '',
+      port: 8443,
+      scheme: 'https',
+      username: '',
+      lastUsedAt: '',
+      status: 'unknown',
+      accessTokenRef: '',
+      refreshTokenRef: '',
+      privateKeyRef: ''
+    };
+  }
+  private connectionById(id: string): SavedConnection | undefined {
+    return this.connections.find((item: SavedConnection) => item.id === id);
+==== 后段第 30 页 ====
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    this.splashTimer = setTimeout(() => {
+      this.splashLight = true;
+    }, 220);
+    this.splashHideTimer = setTimeout(() => {
+      this.splashVisible = false;
+    }, 1050);
+  }
+  aboutToDisappear(): void {
+    if (this.splashTimer >= 0) {
+      clearTimeout(this.splashTimer);
+      this.splashTimer = -1;
+    }
+    if (this.splashHideTimer >= 0) {
+      clearTimeout(this.splashHideTimer);
+      this.splashHideTimer = -1;
+    }
+  }
+  onBackPress(): boolean {
+    this.backRequestToken++;
+    return true;
+  }
+  build() {
+    Stack() {
+      ConnectionHome({ backRequestToken: $backRequestToken })
+      if (this.splashVisible) {
+        Column({ space: 12 }) {
+          Text('AI')
+            .fontSize(48)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.splashLight ? '#000000' : '#FFFFFF')
+            .letterSpacing(0)
+          Row()
+            .width(56)
+            .height(4)
+            .borderRadius(2)
+            .backgroundColor(SPLASH_KLEIN_BLUE)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.splashLight ? '#FFFFFF' : '#000000')
+        .animation({ duration: 650, curve: Curve.EaseInOut })
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+}

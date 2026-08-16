@@ -1,0 +1,17 @@
+node_modules/
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+/cert/
+/build-profile.json5
+/conversation-log.txt
+/session-log.txt
+/.superpowers

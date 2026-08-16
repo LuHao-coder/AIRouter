@@ -53,9 +53,11 @@ sudo systemctl start coturn
 ### 1. 克隆项目
 
 ```bash
-cd /opt
-git clone https://github.com/LuHao-coder/codex-router.git
-cd codex-router
+mkdir -p /opt/codex-router
+cd /opt/codex-router
+git clone <你的仓库地址> codex-router-master
+# 或从本地上传：scp -r codex-router-master root@<服务器IP>:/opt/codex-router/
+cd codex-router-master/gateway
 npm install
 ```
 
@@ -86,23 +88,45 @@ node scripts/generate-signing-key.mjs
 
 ### 4. 初始化数据库
 
-```bash
-node scripts/setup-db.mjs
-```
+数据库在网关首次启动时自动创建（`data/devices.db`），无需手动初始化。首次启动后生成一个注册码：
 
-这会创建 SQLite 数据库并生成注册码。
+```bash
+cd /opt/codex-router/codex-router-master
+node -e "
+const Database = require('better-sqlite3');
+const db = new Database('./data/devices.db');
+const crypto = require('crypto');
+const code = crypto.randomBytes(8).toString('hex');
+db.prepare('INSERT INTO registration_codes (code) VALUES (?)').run(code);
+console.log('新注册码:', code);
+"
+```
 
 ### 5. 配置环境变量
 
-创建 `.env` 文件：
+创建 `.env` 文件（供 systemd `EnvironmentFile` 使用）：
 
 ```bash
 cat > .env << 'EOF'
 OPENCODE_COMMAND=opencode
-PORT=8443
-HTTP_PORT=8080
+OPENCODE_SERVER_URL=http://127.0.0.1:4096
+OPENCODE_WORKDIR=/root
+GATEWAY_HOST=0.0.0.0
+GATEWAY_PORT=8443
+GATEWAY_HTTP_PORT=8080
+GATEWAY_TLS_KEY=/opt/codex-router/certs/key.pem
+GATEWAY_TLS_CERT=/opt/codex-router/certs/cert.pem
+AI_ROUTER_SIGNING_KEY_PATH=/opt/codex-router/codex-router-master/keys/jwt-signing.pem
+AI_ROUTER_SIGNING_PUB_PATH=/opt/codex-router/codex-router-master/keys/jwt-signing.pub
+AI_ROUTER_DB_PATH=/opt/codex-router/codex-router-master/data/devices.db
+COTURN_HOST=8.153.175.142
+COTURN_PORT=3478
+COTURN_USER=codexrouter
+COTURN_PASS=ChangMe123!
 EOF
 ```
+
+> 注：当前 ECS 使用 coturn 部署在网关同一台机器上，`COTURN_HOST` 需为公网可达的 IP（`8.153.175.142`），否则手机无法建立 TURN 连接。
 
 ### 6. 启动服务
 
@@ -134,12 +158,12 @@ After=network.target coturn.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/codex-router
+WorkingDirectory=/opt/codex-router/codex-router-master
 ExecStart=/usr/bin/node gateway/server.mjs
 Restart=always
 RestartSec=5
 KillMode=control-group
-EnvironmentFile=/opt/codex-router/.env
+EnvironmentFile=/opt/codex-router/codex-router-master/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -157,10 +181,10 @@ sudo systemctl status codex-router
 ## 五、查看注册码
 
 ```bash
-cd /opt/codex-router
+cd /opt/codex-router/codex-router-master
 node -e "
 const Database = require('better-sqlite3');
-const db = new Database('./db/gateway.db');
+const db = new Database('./data/devices.db');
 const codes = db.prepare('SELECT code, used FROM registration_codes').all();
 console.log('注册码列表：');
 codes.forEach(c => console.log(c.code, c.used ? '(已使用)' : '(未使用)'));
@@ -179,11 +203,12 @@ codes.forEach(c => console.log(c.code, c.used ? '(已使用)' : '(未使用)'));
 1. **修改默认注册码**
    在数据库中删除默认注册码，生成新的：
    ```bash
+   cd /opt/codex-router/codex-router-master
    node -e "
    const crypto = require('crypto');
    const code = crypto.randomBytes(8).toString('hex');
    const Database = require('better-sqlite3');
-   const db = new Database('./db/gateway.db');
+   const db = new Database('./data/devices.db');
    db.prepare('INSERT INTO registration_codes (code) VALUES (?)').run(code);
    console.log('新注册码:', code);
    "

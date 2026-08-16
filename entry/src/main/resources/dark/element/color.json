@@ -1,0 +1,224 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#000000"
+    },
+    {
+      "name": "terminal_background",
+      "value": "#0F1217"
+    },
+    {
+      "name": "terminal_panel",
+      "value": "#171B22"
+    },
+    {
+      "name": "terminal_panel_elevated",
+      "value": "#1C212A"
+    },
+    {
+      "name": "terminal_row",
+      "value": "#171B22"
+    },
+    {
+      "name": "terminal_input",
+      "value": "#12151C"
+    },
+    {
+      "name": "terminal_toolbar",
+      "value": "#171B22"
+    },
+    {
+      "name": "terminal_transcript",
+      "value": "#12151C"
+    },
+    {
+      "name": "terminal_border",
+      "value": "#262C36"
+    },
+    {
+      "name": "terminal_border_strong",
+      "value": "#333A47"
+    },
+    {
+      "name": "terminal_subtle_border",
+      "value": "#1D222B"
+    },
+    {
+      "name": "terminal_text",
+      "value": "#E6E8EE"
+    },
+    {
+      "name": "terminal_muted_text",
+      "value": "#9AA3B2"
+    },
+    {
+      "name": "terminal_dim_text",
+      "value": "#6B7484"
+    },
+    {
+      "name": "terminal_accent",
+      "value": "#4D7FFF"
+    },
+    {
+      "name": "terminal_accent_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "terminal_rename_button",
+      "value": "#1E2A45"
+    },
+    {
+      "name": "terminal_rename_button_text",
+      "value": "#6C9AFF"
+    },
+    {
+      "name": "terminal_green",
+      "value": "#3DD977"
+    },
+    {
+      "name": "terminal_blue",
+      "value": "#6C9AFF"
+    },
+    {
+      "name": "terminal_amber",
+      "value": "#E8A04E"
+    },
+    {
+      "name": "terminal_red",
+      "value": "#F87171"
+    },
+    {
+      "name": "terminal_button_secondary",
+      "value": "#222833"
+    },
+    {
+      "name": "terminal_button_neutral",
+      "value": "#2A313D"
+    },
+    {
+      "name": "terminal_cancel_button",
+      "value": "#2A313D"
+    },
+    {
+      "name": "terminal_danger_surface",
+      "value": "#3A1E1E"
+    },
+    {
+      "name": "terminal_danger_text",
+      "value": "#F87171"
+    },
+    {
+      "name": "terminal_success_surface",
+      "value": "#1C3326"
+    },
+    {
+      "name": "terminal_success_text",
+      "value": "#3DD977"
+    },
+    {
+      "name": "terminal_notice_surface",
+      "value": "#1C3326"
+    },
+    {
+      "name": "terminal_notice_border",
+      "value": "#3D7A52"
+    },
+    {
+      "name": "terminal_shadow",
+      "value": "#00000066"
+    },
+    {
+      "name": "terminal_card_shadow",
+      "value": "#00000080"
+    },
+    {
+      "name": "terminal_dialog_shadow",
+      "value": "#00000073"
+    },
+    {
+      "name": "terminal_floating_shadow",
+      "value": "#00000066"
+    },
+    {
+      "name": "terminal_accent_glow",
+      "value": "#4D7FFF40"
+    },
+    {
+      "name": "terminal_accent_card_glow",
+      "value": "#4D7FFF4D"
+    },
+    {
+      "name": "terminal_label",
+      "value": "#A6AEBF"
+    },
+    {
+      "name": "terminal_dialog_title",
+      "value": "#E6E8EE"
+    },
+    {
+      "name": "terminal_app_title",
+      "value": "#F0F2F6"
+    },
+    {
+      "name": "terminal_section_title",
+      "value": "#E6E8EE"
+    },
+    {
+      "name": "terminal_resume_title",
+      "value": "#C6CCD8"
+    },
+    {
+      "name": "terminal_user_message_surface",
+      "value": "#1E2A45"
+    },
+    {
+      "name": "terminal_waiting_message_surface",
+      "value": "#1C3326"
+    },
+    {
+      "name": "terminal_user_body_text",
+      "value": "#DCE4F5"
+    },
+    {
+      "name": "terminal_reasoning_body_text",
+      "value": "#E8A04E"
+    },
+    {
+      "name": "terminal_tool_body_text",
+      "value": "#D9A05F"
+    },
+    {
+      "name": "terminal_inline_code",
+      "value": "#6C9AFF"
+    },
+    {
+      "name": "terminal_inline_path",
+      "value": "#A78BFA"
+    },
+    {
+      "name": "terminal_code_block_background",
+      "value": "#141821"
+    },
+    {
+      "name": "terminal_code_block_border",
+      "value": "#262C36"
+    },
+    {
+      "name": "terminal_heading",
+      "value": "#F0F2F6"
+    },
+    {
+      "name": "terminal_quote_border",
+      "value": "#3A4453"
+    },
+    {
+      "name": "terminal_link",
+      "value": "#6C9AFF"
+    },
+    {
+      "name": "terminal_transparent",
+      "value": "#00000000"
+    }
+  ]
+}
