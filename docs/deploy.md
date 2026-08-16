@@ -55,7 +55,7 @@ sudo systemctl start coturn
 ```bash
 mkdir -p /opt/codex-router
 cd /opt/codex-router
-git clone <你的仓库地址> codex-router-master
+git clone https://github.com/LuHao-coder/AIRouter.git codex-router-master
 # 或从本地上传：scp -r codex-router-master root@<服务器IP>:/opt/codex-router/
 cd codex-router-master/gateway
 npm install
