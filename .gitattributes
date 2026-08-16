@@ -1,0 +1,3 @@
+# GitHub Linguist overrides
+# ArkTS (.ets) is a TypeScript superset; count it as TypeScript for language stats
+*.ets linguist-language=TypeScript
