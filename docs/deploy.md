@@ -119,14 +119,14 @@ GATEWAY_TLS_CERT=/opt/codex-router/certs/cert.pem
 AI_ROUTER_SIGNING_KEY_PATH=/opt/codex-router/codex-router-master/keys/jwt-signing.pem
 AI_ROUTER_SIGNING_PUB_PATH=/opt/codex-router/codex-router-master/keys/jwt-signing.pub
 AI_ROUTER_DB_PATH=/opt/codex-router/codex-router-master/data/devices.db
-COTURN_HOST=8.153.175.142
+COTURN_HOST=8.153.174.88
 COTURN_PORT=3478
 COTURN_USER=codexrouter
 COTURN_PASS=ChangMe123!
 EOF
 ```
 
-> 注：当前 ECS 使用 coturn 部署在网关同一台机器上，`COTURN_HOST` 需为公网可达的 IP（`8.153.175.142`），否则手机无法建立 TURN 连接。
+> 注：当前 ECS 使用 coturn 部署在网关同一台机器上，`COTURN_HOST` 需为公网可达的 IP（`8.153.174.88`），否则手机无法建立 TURN 连接。
 
 ### 6. 启动服务
 

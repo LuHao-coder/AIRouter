@@ -20,7 +20,7 @@ lt-cred-mech
 user=codexrouter:ChangMe123!
 
 # 域名（替换为你的域名或IP）
-realm=8.153.175.142
+realm=8.153.174.88
 
 # 日志
 log-file=/var/log/turnserver.log
@@ -37,8 +37,8 @@ total-quota=100
 stale-nonce=600
 
 # 中继IP（阿里云公网IP）
-relay-ip=8.153.175.142
-external-ip=8.153.175.142/8.153.175.142
+relay-ip=8.153.174.88
+external-ip=8.153.174.88/8.153.174.88
 EOF
 
 echo "=== 配置防火墙 ==="
@@ -57,7 +57,7 @@ sudo systemctl status coturn
 
 echo ""
 echo "=== 部署完成 ==="
-echo "STUN/TURN 服务器地址: 8.153.175.142:3478"
+echo "STUN/TURN 服务器地址: 8.153.174.88:3478"
 echo "用户名: codexrouter"
 echo "密码: ChangMe123!"
 echo ""

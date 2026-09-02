@@ -10,7 +10,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -out "$CERT_PATH" \
   -days 365 \
   -subj "/CN=codex-router" \
-  -addext "subjectAltName=IP:127.0.0.1,IP:8.153.175.142"
+  -addext "subjectAltName=IP:127.0.0.1,IP:8.153.174.88"
 
 # 复制证书到 rawfile 目录（用于鸿蒙应用证书固定）
 if [ -d "$RAWFILE_DIR" ]; then

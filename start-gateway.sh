@@ -25,7 +25,7 @@ export AI_ROUTER_SIGNING_PUB_PATH=/opt/codex-router/codex-router-master/keys/jwt
 export AI_ROUTER_DB_PATH=/opt/codex-router/codex-router-master/data/devices.db
 
 # Coturn/TURN 配置
-export COTURN_HOST=8.153.175.142
+export COTURN_HOST=8.153.174.88
 export COTURN_PORT=3478
 export COTURN_USER=codexrouter
 export COTURN_PASS=ChangMe123!

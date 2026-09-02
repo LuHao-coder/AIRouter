@@ -4285,7 +4285,7 @@ export struct ConnectionHome {
     Column({ space: 18 }) {
       Scroll() {
         Column({ space: 10 }) {
-            this.Field('服务器地址', this.draftAddress, '例如 8.153.175.142')
+            this.Field('服务器地址', this.draftAddress, '例如 8.153.174.88')
             Row({ space: 10 }) {
               Button(this.testingConnection ? '正在测试...' : '测试连接')
                 .height(36)
@@ -5280,7 +5280,7 @@ export struct ConnectionHome {
           .width('100%')
 
           Column({ space: 18 }) {
-            this.Field('服务器地址', this.draftAddress, '例如 8.153.175.142')
+            this.Field('服务器地址', this.draftAddress, '例如 8.153.174.88')
             Row({ space: 10 }) {
               Button(this.testingConnection ? '正在测试...' : '测试连接')
                 .height(36)

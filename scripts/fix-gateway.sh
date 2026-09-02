@@ -32,7 +32,7 @@ Environment=GATEWAY_PORT=8443
 Environment=GATEWAY_HTTP_PORT=8080
 Environment=GATEWAY_TLS_KEY=/opt/codex-router/certs/key.pem
 Environment=GATEWAY_TLS_CERT=/opt/codex-router/certs/cert.pem
-Environment=COTURN_HOST=8.153.175.142
+Environment=COTURN_HOST=8.153.174.88
 Environment=COTURN_PORT=3478
 Environment=COTURN_USER=codexrouter
 Environment=COTURN_PASS=ChangMe123!

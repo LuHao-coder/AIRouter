@@ -32,7 +32,7 @@ start-gateway.sh          本地/ECS 网关启动脚本
 
 ### 1. 部署 Gateway
 
-部署请见 [docs/deploy.md](docs/deploy.md) 或一键脚本 [scripts/deploy-new-ecs.sh](scripts/deploy-new-ecs.sh)（当前 ECS `8.153.175.142`）。
+部署请见 [docs/deploy.md](docs/deploy.md) 或一键脚本 [scripts/deploy-new-ecs.sh](scripts/deploy-new-ecs.sh)（当前 ECS `8.153.174.88`）。
 
 本地启动（先安装 Node.js 22、opencode，并生成签名密钥与证书）：
 
