@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, after } from 'node:test';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -471,5 +471,109 @@ describe('gateway', () => {
       const body = await refreshResponse.json();
       assert.equal(body.error.code, 'invalid_token');
     });
+  });
+});
+
+describe('files', () => {
+  it('lists and downloads allowed generated files', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test-'));
+    writeFileSync(path.join(filesRoot, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
+    writeFileSync(path.join(filesRoot, 'notes.txt'), 'hello');
+    writeFileSync(path.join(filesRoot, 'secret.sh'), '#!/bin/sh');
+    mkdirSync(path.join(filesRoot, '.git'), { recursive: true });
+    writeFileSync(path.join(filesRoot, '.git', 'ignored.md'), 'ignored');
+    writeFileSync(path.join(filesRoot, '.hidden.txt'), 'secret');
+
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-files' });
+
+        const listResponse = await fetch(`${baseUrl}/api/files`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(listResponse.status, 200);
+        const { items } = await listResponse.json();
+        const names = items.map((item) => item.name).sort();
+        assert.deepEqual(names, ['notes.txt', 'report.pptx']);
+
+        const downloadResponse = await fetch(`${baseUrl}/api/files/report.pptx/download`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(downloadResponse.status, 200);
+        const blob = await downloadResponse.blob();
+        assert.equal(blob.size, 15);
+        const text = await blob.text();
+        assert.equal(text, 'fake-pptx-bytes');
+
+        const contentDisposition = downloadResponse.headers.get('content-disposition');
+        assert.match(contentDisposition, /report\.pptx/);
+      });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('requires auth and rejects path traversal / disallowed files', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test2-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-files-auth' });
+
+        const noAuth = await fetch(`${baseUrl}/api/files`);
+        assert.equal(noAuth.status, 401);
+
+        const traversal = await fetch(`${baseUrl}/api/files/..%2F..%2Fetc%2Fpasswd/download`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(traversal.status, 400);
+
+        const disallowed = await fetch(`${baseUrl}/api/files/whatever.exe/download`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(disallowed.status, 400);
+
+        const missing = await fetch(`${baseUrl}/api/files/nope.txt/download`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(missing.status, 404);
+      });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('returns 500 when files root is not configured', async () => {
+    const originalRoot = process.env.FILES_ROOT;
+    const originalWorkdir = process.env.OPENCODE_WORKDIR;
+    delete process.env.FILES_ROOT;
+    delete process.env.OPENCODE_WORKDIR;
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-files-noroot' });
+        const response = await fetch(`${baseUrl}/api/files`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(response.status, 500);
+        const body = await response.json();
+        assert.equal(body.error.code, 'files_root_unset');
+      });
+    } finally {
+      if (originalRoot !== undefined) process.env.FILES_ROOT = originalRoot;
+      if (originalWorkdir !== undefined) process.env.OPENCODE_WORKDIR = originalWorkdir;
+    }
   });
 });

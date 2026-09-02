@@ -1,6 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { OpenCodeServerClient } from './opencode-server.mjs';
 import {
@@ -24,6 +25,12 @@ import {
   reregisterLimiter,
   getClientIp,
 } from './rate-limiter.mjs';
+import {
+  resolveFilesRoot,
+  listGeneratedFiles,
+  resolveDownloadPath,
+  isAllowedFile,
+} from './file-service.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 8443;
@@ -69,6 +76,20 @@ function bearerToken(request) {
   const header = request.headers.authorization ?? '';
   if (!header.startsWith('Bearer ')) return '';
   return header.substring('Bearer '.length);
+}
+
+const MIME_TYPES = {
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.zip': 'application/zip'
+};
+
+function mimeTypeForFile(target) {
+  return MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
 }
 
 function normalizeResumeCwd(value) {
@@ -486,6 +507,51 @@ function createGatewayHandler(options = {}) {
           return;
         }
         jsonResponse(response, 200, task);
+        return;
+      }
+
+      // ─── Files: List generated files ───
+      if (request.method === 'GET' && url.pathname === '/api/files') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+        jsonResponse(response, 200, { items: listGeneratedFiles(filesRoot) });
+        return;
+      }
+
+      // ─── Files: Download ───
+      const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
+      if (request.method === 'GET' && downloadMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+
+        const target = resolveDownloadPath(filesRoot, downloadMatch[1]);
+        if (!target || !isAllowedFile(target)) {
+          errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
+          return;
+        }
+
+        try {
+          const content = fs.readFileSync(target);
+          const type = mimeTypeForFile(target);
+          response.writeHead(200, {
+            'content-type': type,
+            'content-length': content.length,
+            'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(target))}"`
+          });
+          response.end(content);
+        } catch (error) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+        }
         return;
       }
 
