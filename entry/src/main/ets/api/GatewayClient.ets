@@ -2,6 +2,7 @@ import { rcp } from '@kit.RemoteCommunicationKit';
 
 const DEFAULT_RESUME_CWD: string = '~';
 const OPENCODE_RESUMES_PATH: string = '/api/opencode/resumes';
+const FILES_PATH: string = '/api/files';
 
 export interface LoginRequest {
   baseUrl: string;
@@ -103,6 +104,28 @@ export interface RenameResumeRequest extends ResumeMutationRequest {
   name: string;
 }
 
+export interface ListFilesRequest {
+  baseUrl: string;
+  accessToken: string;
+}
+
+export interface ServerFile {
+  name: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface DownloadFileRequest {
+  baseUrl: string;
+  accessToken: string;
+  fileName: string;
+}
+
+export interface DownloadedFile {
+  name: string;
+  bytes: ArrayBuffer;
+}
+
 export interface ResumeItem {
   id: string;
   title: string;
@@ -149,6 +172,8 @@ export interface GatewayClient {
   sendResumeMessage(request: SendResumeMessageRequest): Promise<ResumeSession>;
   renameResume(request: RenameResumeRequest): Promise<void>;
   deleteResume(request: ResumeMutationRequest): Promise<void>;
+  listFiles(request: ListFilesRequest): Promise<ServerFile[]>;
+  downloadFile(request: DownloadFileRequest): Promise<DownloadedFile>;
 }
 
 export interface RequestHeaders {
@@ -167,8 +192,14 @@ export interface GatewayHttpResponse {
   result: string;
 }
 
+export interface GatewayBinaryResponse {
+  statusCode: number;
+  body: ArrayBuffer;
+}
+
 export interface GatewayTransport {
   request(url: string, options: RequestOptions): Promise<GatewayHttpResponse>;
+  requestBinary(url: string, options: RequestOptions): Promise<GatewayBinaryResponse>;
 }
 
 export class GatewayHttpError extends Error {
@@ -228,6 +259,10 @@ interface HealthResponseBody {
 
 interface ListResumesResponseBody {
   items: ResumeItem[];
+}
+
+interface ListFilesResponseBody {
+  items: ServerFile[];
 }
 
 interface ThreadStatus {
@@ -314,6 +349,31 @@ class SystemGatewayTransport implements GatewayTransport {
     } catch (error) {
       const detail: string = typeof error === 'object' && error !== null ? JSON.stringify(error) : String(error);
       console.error(`[GatewayTransport] request failed: url=${url}, method=${options.method}, error=${detail}`);
+      throw new GatewayNetworkError(detail);
+    }
+  }
+
+  async requestBinary(url: string, options: RequestOptions): Promise<GatewayBinaryResponse> {
+    const req = new rcp.Request(url, options.method);
+
+    const headers: Record<string, string> = {};
+    if (options.headers.contentType.length > 0) {
+      headers['content-type'] = options.headers.contentType;
+    }
+    if (options.headers.authorization.length > 0) {
+      headers['authorization'] = options.headers.authorization;
+    }
+    req.headers = headers;
+
+    try {
+      const response = await this.session.fetch(req);
+      return {
+        statusCode: response.statusCode,
+        body: response.body !== undefined ? response.body : new ArrayBuffer(0)
+      };
+    } catch (error) {
+      const detail: string = typeof error === 'object' && error !== null ? JSON.stringify(error) : String(error);
+      console.error(`[GatewayTransport] requestBinary failed: url=${url}, method=${options.method}, error=${detail}`);
       throw new GatewayNetworkError(detail);
     }
   }
@@ -576,6 +636,40 @@ export class HttpGatewayClient implements GatewayClient {
     );
     ensureSuccess(response);
   }
+
+  async listFiles(request: ListFilesRequest): Promise<ServerFile[]> {
+    const url = joinUrl(request.baseUrl, FILES_PATH);
+    console.info(`[listFiles] 请求 URL: ${url}`);
+    const response = await this.transport.request(url, {
+      method: 'GET',
+      headers: {
+        contentType: '',
+        authorization: `Bearer ${request.accessToken}`
+      }
+    });
+    ensureSuccess(response);
+
+    const body = JSON.parse(response.result) as ListFilesResponseBody;
+    return body.items;
+  }
+
+  async downloadFile(request: DownloadFileRequest): Promise<DownloadedFile> {
+    const url = joinUrl(request.baseUrl, `${FILES_PATH}/${encodeURIComponent(request.fileName)}/download`);
+    console.info(`[downloadFile] 请求 URL: ${url}`);
+    const response = await this.transport.requestBinary(url, {
+      method: 'GET',
+      headers: {
+        contentType: '',
+        authorization: `Bearer ${request.accessToken}`
+      }
+    });
+    ensureSuccessCode(response.statusCode);
+
+    return {
+      name: request.fileName,
+      bytes: response.body
+    };
+  }
 }
 
 export class MockGatewayClient implements GatewayClient {
@@ -729,6 +823,28 @@ export class MockGatewayClient implements GatewayClient {
 
   async deleteResume(_request: ResumeMutationRequest): Promise<void> {
   }
+
+  async listFiles(_request: ListFilesRequest): Promise<ServerFile[]> {
+    return [
+      {
+        name: '红楼梦第一节课.pptx',
+        size: 39610,
+        modifiedAt: '2026-09-02T08:43:38.000Z'
+      },
+      {
+        name: '调研报告.docx',
+        size: 25410,
+        modifiedAt: '2026-09-01T03:20:00.000Z'
+      }
+    ];
+  }
+
+  async downloadFile(_request: DownloadFileRequest): Promise<DownloadedFile> {
+    return {
+      name: _request.fileName,
+      bytes: new ArrayBuffer(0)
+    };
+  }
 }
 
 function toResumeSession(body: ResumeThreadResponseBody, fallbackThreadId: string): ResumeSession {
@@ -812,5 +928,11 @@ function joinUrl(baseUrl: string, path: string): string {
 function ensureSuccess(response: GatewayHttpResponse): void {
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new GatewayHttpError(response.statusCode);
+  }
+}
+
+function ensureSuccessCode(statusCode: number): void {
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new GatewayHttpError(statusCode);
   }
 }

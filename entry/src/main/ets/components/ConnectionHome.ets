@@ -1,8 +1,9 @@
-import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { common, ConfigurationConstant, Want } from '@kit.AbilityKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
 import { KeyCode } from '@kit.InputKit';
 import { buffer } from '@kit.ArkTS';
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { getDeviceId } from '../model/DeviceIdManager';
 import { ensureDeviceKeyPair, signChallenge } from '../model/DeviceKeyManager';
 import {
@@ -19,6 +20,7 @@ import {
   ResumeMutationRequest,
   ResumeSession,
   ResumeTurn,
+  ServerFile,
 } from '../api/GatewayClient';
 import {
   appendSavedConnection,
@@ -81,6 +83,11 @@ enum ConnectionDialog {
   DELETE
 }
 
+enum AppTab {
+  CONNECT,
+  FILES
+}
+
 interface ResumeTextSegment {
   id: string;
   text: string;
@@ -132,6 +139,41 @@ const RESUME_MD_BLOCK_LIST: string = 'list';
 const RESUME_MD_BLOCK_QUOTE: string = 'quote';
 const RESUME_MD_BLOCK_DIVIDER: string = 'divider';
 const RESUME_MD_BLOCK_PARAGRAPH: string = 'paragraph';
+
+function resolveMimeType(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pptx')) {
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  }
+  if (lower.endsWith('.ppt')) {
+    return 'application/vnd.ms-powerpoint';
+  }
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lower.endsWith('.doc')) {
+    return 'application/msword';
+  }
+  if (lower.endsWith('.xlsx')) {
+    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  }
+  if (lower.endsWith('.xls')) {
+    return 'application/vnd.ms-excel';
+  }
+  if (lower.endsWith('.pdf')) {
+    return 'application/pdf';
+  }
+  if (lower.endsWith('.md')) {
+    return 'text/markdown';
+  }
+  if (lower.endsWith('.txt')) {
+    return 'text/plain';
+  }
+  if (lower.endsWith('.zip')) {
+    return 'application/zip';
+  }
+  return 'application/octet-stream';
+}
 
 function emptyResumeSession(): ResumeSession {
   return {
@@ -461,6 +503,7 @@ const PC_RESUME_PANEL_MAX_WIDTH: number = 800;
 const RESUME_PREVIEW_ROW_HEIGHT: number = 51.3;
 const RESUME_PREVIEW_ROW_GAP: number = 6;
 const RESUME_LIST_ROW_GAP: number = 6;
+const FILES_OUTPUT_DIR: string = 'AIRouter输出';
 const RESUME_AGENT_OUTPUT_DOT_SIZE: number = 5.2;
 const RESUME_AGENT_OUTPUT_DOT_OFFSET_X: number = -9.6;
 const RESUME_AGENT_OUTPUT_DOT_TRAILING_MARGIN: number = -8.4;
@@ -550,6 +593,7 @@ export struct ConnectionHome {
   @Link @Watch('handleBackRequestTokenChange') backRequestToken: number;
   @State private connections: SavedConnection[] = [];
   @State private dialog: ConnectionDialog = ConnectionDialog.NONE;
+  @State private selectedTab: AppTab = AppTab.CONNECT;
   @State private selectedConnectionId: string = '';
   @State private deleteConnectionId: string = '';
   @State private reloginConnectionId: string = '';
@@ -570,6 +614,16 @@ export struct ConnectionHome {
   @State private activeConnectionId: string = '';
   @State private activeConnectionIndex: number = 0;
   @State private connectionCardScrollPositions: number[] = [];
+  @State private serverFiles: ServerFile[] = [];
+  @State private serverFilesConnectionId: string = '';
+  @State private serverFilesLoading: boolean = false;
+  @State private serverFilesFeedback: string = '';
+  @State private downloadingFileId: string = '';
+  @State private downloadedFileName: string = '';
+  @State private downloadFeedback: string = '';
+  @State private openingFileName: string = '';
+  @State private filesRefreshing: boolean = false;
+  @State private filesRefreshTick: number = 0;
   @State private resumes: ResumeItem[] = [];
   @State private resumesConnectionId: string = '';
   @State private resumesLoading: boolean = false;
@@ -2584,10 +2638,16 @@ export struct ConnectionHome {
   }
 
   private canBackInApp(): boolean {
-    return this.hasActiveResumeSession || this.dialog !== ConnectionDialog.NONE;
+    return this.hasActiveResumeSession || this.dialog !== ConnectionDialog.NONE || this.selectedTab === AppTab.FILES;
   }
 
   private handlePageBack(): boolean {
+    if (this.selectedTab === AppTab.FILES && !this.hasActiveResumeSession && this.dialog === ConnectionDialog.NONE) {
+      this.selectedTab = AppTab.CONNECT;
+      this.updateBackAvailability();
+      return true;
+    }
+
     if (this.hasActiveResumeSession) {
       this.backToResumeList();
       return true;
@@ -2612,6 +2672,241 @@ export struct ConnectionHome {
   private shouldShowRightEdgeBackGesture(): boolean {
     return this.hasActiveResumeSession || this.dialog === ConnectionDialog.ADD ||
       this.dialog === ConnectionDialog.RESUME_LIST;
+  }
+
+  private resolveConnectionForFiles(): SavedConnection | null {
+    if (this.selectedTab !== AppTab.FILES) {
+      return null;
+    }
+
+    const activeId = resolveActiveConnectionId(this.connections, this.activeConnectionId,
+      this.activeConnectionIndex);
+    const found = this.connections.find((item: SavedConnection) => item.id === activeId);
+    if (found === undefined) {
+      return null;
+    }
+
+    if (found.accessTokenRef.trim().length === 0) {
+      return null;
+    }
+
+    return found;
+  }
+
+  private refreshServerFilesOnTabOpen(): void {
+    const connection = this.resolveConnectionForFiles();
+    if (connection === null) {
+      this.serverFilesFeedback = '请先添加并登录一个连接';
+      return;
+    }
+    this.loadServerFiles(connection);
+  }
+
+  private async loadServerFiles(connection: SavedConnection | null): Promise<void> {
+    if (connection === null || connection.accessTokenRef.trim().length === 0) {
+      return;
+    }
+
+    this.serverFilesLoading = true;
+    this.serverFiles = [];
+    this.serverFilesConnectionId = connection.id;
+    this.serverFilesFeedback = '';
+    this.downloadFeedback = '';
+    this.downloadedFileName = '';
+    this.openingFileName = '';
+
+    try {
+      const baseUrl = `${connection.scheme}://${connection.host}:${connection.port}`;
+      const loadedFiles = await this.gatewayClient.listFiles({
+        baseUrl,
+        accessToken: connection.accessTokenRef
+      });
+      this.serverFiles = loadedFiles;
+      if (this.serverFiles.length === 0) {
+        this.serverFilesFeedback = '暂无文件';
+      }
+    } catch (error) {
+      console.error(`[ServerFiles] 获取文件失败: ${JSON.stringify(error)}`);
+      this.serverFilesFeedback = isGatewayNetworkError(error) ?
+        '无法连接到服务器' :
+        isGatewayAuthenticationError(error) ? '登录已失效，请重新登录' : '获取文件失败';
+    } finally {
+      this.serverFilesLoading = false;
+    }
+  }
+
+  private async downloadServerFile(connection: SavedConnection | null, file: ServerFile): Promise<void> {
+    if (connection === null || connection.accessTokenRef.trim().length === 0 ||
+      this.downloadingFileId.length > 0) {
+      return;
+    }
+
+    if (!this.isSafeServerFileName(file.name)) {
+      this.downloadFeedback = '文件名不合法';
+      return;
+    }
+
+    this.downloadingFileId = file.name;
+    this.downloadFeedback = '';
+    this.downloadedFileName = '';
+
+    try {
+      const baseUrl = `${connection.scheme}://${connection.host}:${connection.port}`;
+      const downloaded = await this.gatewayClient.downloadFile({
+        baseUrl,
+        accessToken: connection.accessTokenRef,
+        fileName: file.name
+      });
+      const savedName = await this.saveFileToOutputDir(downloaded.name, downloaded.bytes);
+      this.downloadFeedback = `已保存 ${savedName}`;
+      this.downloadedFileName = file.name;
+    } catch (error) {
+      console.error(`[ServerFiles] 下载失败: ${JSON.stringify(error)}`);
+      this.downloadFeedback = isGatewayNetworkError(error) ?
+        '下载失败：网络错误' :
+        (isGatewayAuthenticationError(error) ? '登录已失效，请重新登录' : '下载失败');
+    } finally {
+      this.downloadingFileId = '';
+    }
+  }
+
+  private isSafeServerFileName(name: string): boolean {
+    return name.length > 0 && !name.includes('/') && !name.includes('\\') && !name.includes('..');
+  }
+
+  private async saveFileToOutputDir(fileName: string, bytes: ArrayBuffer): Promise<string> {
+    const hostContext = this.getUIContext().getHostContext();
+    if (hostContext === null || hostContext === undefined) {
+      throw new Error('no host context');
+    }
+
+    const context = hostContext as common.UIAbilityContext;
+    let filesDir: string = '';
+    try {
+      filesDir = context.filesDir;
+    } catch (error) {
+      console.error(`[ServerFiles] 获取 filesDir 失败: ${JSON.stringify(error)}`);
+      throw new Error('无法获取存储目录');
+    }
+
+    const outputDir = `${filesDir}/${FILES_OUTPUT_DIR}`;
+    let dirExists = false;
+    try {
+      dirExists = await fileIo.access(outputDir);
+    } catch (error) {
+      dirExists = false;
+    }
+    if (!dirExists) {
+      try {
+        await fileIo.mkdir(outputDir, true);
+      } catch (error) {
+        console.error(`[ServerFiles] 创建目录失败: ${JSON.stringify(error)}`);
+        throw new Error('无法创建输出目录');
+      }
+    }
+
+    const destination = `${outputDir}/${fileName}`;
+    let fileDescriptor: number = -1;
+    try {
+      const openedFile = await fileIo.open(destination,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      fileDescriptor = openedFile.fd;
+    } catch (error) {
+      console.error(`[ServerFiles] 打开文件失败: ${JSON.stringify(error)}`);
+      throw new Error('无法创建文件');
+    }
+    try {
+      await fileIo.write(fileDescriptor, bytes);
+    } catch (error) {
+      console.error(`[ServerFiles] 写入文件失败: ${JSON.stringify(error)}`);
+      throw new Error('写入文件失败');
+    } finally {
+      try {
+        await fileIo.close(fileDescriptor);
+      } catch (error) {
+        console.error(`[ServerFiles] 关闭文件失败: ${JSON.stringify(error)}`);
+      }
+    }
+
+    return fileName;
+  }
+
+  private formatServerFileSize(size: number): string {
+    if (size < 1024) {
+      return `${size.toString()} B`;
+    }
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
+    }
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private formatServerFileDate(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return '';
+    }
+    const parsed = Date.parse(trimmed);
+    if (Number.isNaN(parsed)) {
+      return trimmed;
+    }
+    const date = new Date(parsed);
+    return `${date.getFullYear()}-${this.padServerFileNumber(date.getMonth() + 1)}-` +
+      `${this.padServerFileNumber(date.getDate())} ${this.padServerFileNumber(date.getHours())}:` +
+      `${this.padServerFileNumber(date.getMinutes())}`;
+  }
+
+  private padServerFileNumber(value: number): string {
+    return value < 10 ? `0${value.toString()}` : value.toString();
+  }
+
+  private async openDownloadedFile(fileName: string): Promise<void> {
+    const connection = this.resolveConnectionForFiles();
+    if (connection === null || connection.accessTokenRef.trim().length === 0 ||
+      this.openingFileName.length > 0) {
+      return;
+    }
+
+    this.openingFileName = fileName;
+    this.downloadFeedback = '';
+
+    try {
+      const baseUrl = `${connection.scheme}://${connection.host}:${connection.port}`;
+      const downloaded = await this.gatewayClient.downloadFile({
+        baseUrl,
+        accessToken: connection.accessTokenRef,
+        fileName
+      });
+
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const uris = await documentPicker.save({ newFileNames: [fileName] });
+
+      if (uris.length === 0) {
+        this.openingFileName = '';
+        return;
+      }
+
+      const file = await fileIo.open(uris[0],
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        await fileIo.write(file.fd, downloaded.bytes);
+      } finally {
+        await fileIo.close(file);
+      }
+
+      const want: Want = {
+        uri: uris[0],
+        type: resolveMimeType(fileName)
+      };
+      await context.startAbility(want);
+      this.downloadFeedback = `已打开 ${fileName}`;
+    } catch (error) {
+      console.error(`[ServerFiles] 打开文件失败: ${JSON.stringify(error)}`);
+      this.downloadFeedback = '打开失败';
+    } finally {
+      this.openingFileName = '';
+    }
   }
 
   private async sendResumeMessage(): Promise<void> {
@@ -3021,18 +3316,18 @@ export struct ConnectionHome {
 
   private resumePromptText(item: ResumeContentItem): string {
     if (item.role === 'user') {
-      return 'user@phone:~$';
+      return '用户';
     }
 
     if (item.role === 'assistant') {
-      return item.kind === 'reasoning' ? 'opencode@router:~$' : 'opencode@router:~$';
+      return 'OpenCode';
     }
 
     if (item.role === 'tool') {
-      return `${item.kind}@tool:~$`;
+      return `OpenCode ${item.kind}`;
     }
 
-    return `${item.kind}:~$`;
+    return 'OpenCode';
   }
 
   private resumeItemColor(item: ResumeContentItem): Resource {
@@ -3407,6 +3702,26 @@ export struct ConnectionHome {
         .opacity(0.8)
     }
     .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private ResumeBackButton() {
+    Button() {
+      Text('‹')
+        .fontSize(22)
+        .fontFamily(TERMINAL_FONT_FAMILY)
+        .fontColor(TERMINAL_TEXT_COLOR)
+        .lineHeight(24)
+    }
+    .width(34)
+    .height(32)
+    .borderRadius(8)
+    .backgroundColor(TERMINAL_TOOLBAR_COLOR)
+    .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+    .accessibilityText('返回会话列表')
+    .onClick(() => {
+      this.backToResumeList();
+    })
   }
 
   @Builder
@@ -4560,6 +4875,8 @@ export struct ConnectionHome {
         Row({ space: 8 }) {
           this.WindowDots()
 
+          this.ResumeBackButton()
+
           Text(this.activeResumeShortTitle())
             .fontSize(15)
             .fontFamily(TERMINAL_FONT_FAMILY)
@@ -5394,47 +5711,268 @@ export struct ConnectionHome {
       })
   }
   build() {
-    Stack() {
-      if (this.hasActiveResumeSession) {
-        this.ResumeSessionContent()
-      } else if (this.dialog === ConnectionDialog.ADD) {
-        this.AddConnectionPage()
-      } else if (this.dialog === ConnectionDialog.RESUME_LIST) {
-        this.ResumeListPage()
+    Column() {
+      if (this.selectedTab === AppTab.FILES) {
+        this.FileTabContent()
       } else {
-        Column() {
-          this.ConnectionList()
+        Stack() {
+          if (this.hasActiveResumeSession) {
+            this.ResumeSessionContent()
+          } else if (this.dialog === ConnectionDialog.ADD) {
+            this.AddConnectionPage()
+          } else if (this.dialog === ConnectionDialog.RESUME_LIST) {
+            this.ResumeListPage()
+          } else {
+            Column() {
+              this.ConnectionList()
+            }
+            .width('100%')
+            .height('100%')
+            .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+
+            if (this.dialog === ConnectionDialog.EDIT) {
+              this.DialogFrame('编辑连接')
+            } else if (this.dialog === ConnectionDialog.RELOGIN) {
+              this.DialogFrame('重新登录')
+            } else if (this.dialog === ConnectionDialog.DELETE) {
+              this.DialogFrame('删除连接')
+            }
+          }
+
+          if (this.shouldShowRightEdgeBackGesture()) {
+            Column() {
+            }
+            .width(28)
+            .height('100%')
+            .backgroundColor('#00FFFFFF')
+            .align(Alignment.End)
+            .gesture(
+              PanGesture({ direction: PanDirection.Horizontal })
+                .onActionEnd((event: GestureEvent) => {
+                  this.handlePageLeftSwipe(event.offsetX);
+                })
+            )
+          }
         }
         .width('100%')
-        .height('100%')
+        .layoutWeight(1)
         .backgroundColor(TERMINAL_BACKGROUND_COLOR)
-
-        if (this.dialog === ConnectionDialog.EDIT) {
-          this.DialogFrame('编辑连接')
-        } else if (this.dialog === ConnectionDialog.RELOGIN) {
-          this.DialogFrame('重新登录')
-        } else if (this.dialog === ConnectionDialog.DELETE) {
-          this.DialogFrame('删除连接')
-        }
       }
 
-      if (this.shouldShowRightEdgeBackGesture()) {
-        Column() {
-        }
-        .width(28)
-        .height('100%')
-        .backgroundColor('#00FFFFFF')
-        .align(Alignment.End)
-        .gesture(
-          PanGesture({ direction: PanDirection.Horizontal })
-            .onActionEnd((event: GestureEvent) => {
-              this.handlePageLeftSwipe(event.offsetX);
-            })
-        )
+      if (!this.hasActiveResumeSession) {
+        this.BottomNavBar()
       }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+  }
+
+  @Builder
+  private BottomNavBar() {
+    Row({ space: 8 }) {
+      this.NavBarItem('连接', AppTab.CONNECT, '▣')
+      this.NavBarItem('文件', AppTab.FILES, '▤')
+    }
+    .width('100%')
+    .height(52)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor(TERMINAL_ROW_COLOR)
+    .border({ width: { top: 1 }, color: TERMINAL_BORDER_COLOR })
+  }
+
+  @Builder
+  private NavBarItem(label: string, tab: AppTab, icon: string) {
+    Column({ space: 2 }) {
+      Text(icon)
+        .fontSize(16)
+        .fontColor(this.selectedTab === tab ? TERMINAL_TEXT_COLOR : TERMINAL_MUTED_TEXT_COLOR)
+      Text(label)
+        .fontSize(11)
+        .fontColor(this.selectedTab === tab ? TERMINAL_TEXT_COLOR : TERMINAL_MUTED_TEXT_COLOR)
+    }
+    .layoutWeight(1)
+    .height(46)
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => {
+      if (this.selectedTab !== tab) {
+        this.selectedTab = tab;
+        if (tab === AppTab.FILES) {
+          this.filesRefreshTick++;
+          this.refreshServerFilesOnTabOpen();
+        }
+      }
+    })
+  }
+
+  @Builder
+  private FileTabContent() {
+    Stack() {
+      if (this.resolveConnectionForFiles() === null) {
+        Column({ space: 10 }) {
+          Text('请先添加并登录一个连接')
+            .fontSize(13)
+            .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+            .width('100%')
+            .textAlign(TextAlign.Center)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Column({ space: 12 }) {
+          Row({ space: 8 }) {
+            Text('文件')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(TERMINAL_TEXT_COLOR)
+
+            Blank()
+
+            Button() {
+              Text(this.serverFilesLoading ? '刷新中…' : '刷新')
+                .fontSize(12)
+                .fontColor(TERMINAL_BACKGROUND_COLOR)
+            }
+            .width(64)
+            .height(32)
+            .borderRadius(8)
+            .backgroundColor(TERMINAL_TEXT_COLOR)
+            .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+            .enabled(!this.serverFilesLoading)
+            .onClick(() => this.loadServerFiles(this.resolveConnectionForFiles()))
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 12, bottom: 4 })
+
+          if (this.serverFilesLoading) {
+            Text('正在获取文件…')
+              .fontSize(13)
+              .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+              .backgroundColor(TERMINAL_ROW_COLOR)
+              .borderRadius(10)
+              .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+          } else if (this.serverFilesFeedback.length > 0 && this.serverFiles.length === 0) {
+            Column({ space: 10 }) {
+              Text(this.serverFilesFeedback)
+                .fontSize(13)
+                .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+                .width('100%')
+                .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                .backgroundColor(TERMINAL_ROW_COLOR)
+                .borderRadius(10)
+                .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+
+              if (this.serverFilesFeedback !== '暂无文件') {
+                Button('重试')
+                  .fontSize(12)
+                  .fontColor(TERMINAL_BACKGROUND_COLOR)
+                  .backgroundColor(TERMINAL_TEXT_COLOR)
+                  .onClick(() => this.loadServerFiles(this.resolveConnectionForFiles()))
+              }
+            }
+            .width('100%')
+          } else {
+            this.ServerFileList()
+          }
+
+          if (this.downloadFeedback.length > 0) {
+            Text(this.downloadFeedback)
+              .fontSize(12)
+              .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+              .backgroundColor(TERMINAL_ROW_COLOR)
+              .borderRadius(10)
+              .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+          }
+        }
+        .width('100%')
+        .height('100%')
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .backgroundColor(TERMINAL_BACKGROUND_COLOR)
+  }
+
+  @Builder
+  private ServerFileList() {
+    Scroll() {
+      Column({ space: RESUME_LIST_ROW_GAP }) {
+        ForEach(this.serverFiles, (file: ServerFile) => {
+          Column({ space: 10 }) {
+            Row({ space: 12 }) {
+              Column({ space: 4 }) {
+                Text(file.name)
+                  .fontSize(14)
+                  .fontColor(TERMINAL_RESUME_TITLE_COLOR)
+                  .fontWeight(FontWeight.Medium)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+                Text(`${this.formatServerFileSize(file.size)} · ${this.formatServerFileDate(file.modifiedAt)}`)
+                  .fontSize(12)
+                  .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Row({ space: 6 }) {
+              if (this.downloadingFileId === file.name) {
+                Button() {
+                  Text('下载中…')
+                    .fontSize(12)
+                    .fontColor(TERMINAL_MUTED_TEXT_COLOR)
+                }
+                .width(72)
+                .height(34)
+                .borderRadius(8)
+                .backgroundColor(TERMINAL_ROW_COLOR)
+                .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+              } else if (this.downloadedFileName === file.name && this.openingFileName.length === 0) {
+                Button() {
+                  Text('打开')
+                    .fontSize(12)
+                    .fontColor(TERMINAL_BACKGROUND_COLOR)
+                }
+                .width(72)
+                .height(34)
+                .borderRadius(8)
+                .backgroundColor(TERMINAL_TEXT_COLOR)
+                .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+                .onClick(() => this.openDownloadedFile(file.name))
+              } else {
+                Button() {
+                  Text('下载')
+                    .fontSize(12)
+                    .fontColor(TERMINAL_BACKGROUND_COLOR)
+                }
+                .width(72)
+                .height(34)
+                .borderRadius(8)
+                .backgroundColor(TERMINAL_TEXT_COLOR)
+                .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+                .enabled(this.downloadingFileId.length === 0 && this.openingFileName.length === 0)
+                .onClick(() => this.downloadServerFile(this.resolveConnectionForFiles(), file))
+              }
+            }
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+            .backgroundColor(TERMINAL_ROW_COLOR)
+            .borderRadius(10)
+            .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+          }
+        }, (file: ServerFile) => file.name)
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 4, bottom: 16 })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .scrollBar(BarState.Auto)
   }
 }
