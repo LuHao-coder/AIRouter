@@ -503,7 +503,6 @@ const PC_RESUME_PANEL_MAX_WIDTH: number = 800;
 const RESUME_PREVIEW_ROW_HEIGHT: number = 51.3;
 const RESUME_PREVIEW_ROW_GAP: number = 6;
 const RESUME_LIST_ROW_GAP: number = 6;
-const FILES_OUTPUT_DIR: string = 'AIRouter输出';
 const RESUME_AGENT_OUTPUT_DOT_SIZE: number = 5.2;
 const RESUME_AGENT_OUTPUT_DOT_OFFSET_X: number = -9.6;
 const RESUME_AGENT_OUTPUT_DOT_TRAILING_MARGIN: number = -8.4;
@@ -623,6 +622,8 @@ export struct ConnectionHome {
   @State private downloadFeedback: string = '';
   @State private openingFileName: string = '';
   @State private filesRefreshing: boolean = false;
+  private fileOutputDirUri: string = '';
+  private downloadedLocalPaths: Record<string, string> = {};
   @State private filesRefreshTick: number = 0;
   @State private resumes: ResumeItem[] = [];
   @State private resumesConnectionId: string = '';
@@ -2757,8 +2758,9 @@ export struct ConnectionHome {
         accessToken: connection.accessTokenRef,
         fileName: file.name
       });
-      const savedName = await this.saveFileToOutputDir(downloaded.name, downloaded.bytes);
-      this.downloadFeedback = `已保存 ${savedName}`;
+      const localPath = await this.saveFileToOutputDir(downloaded.name, downloaded.bytes);
+      this.downloadedLocalPaths[file.name] = localPath;
+      this.downloadFeedback = `已保存到 ${localPath}`;
       this.downloadedFileName = file.name;
     } catch (error) {
       console.error(`[ServerFiles] 下载失败: ${JSON.stringify(error)}`);
@@ -2781,42 +2783,53 @@ export struct ConnectionHome {
     }
 
     const context = hostContext as common.UIAbilityContext;
-    let filesDir: string = '';
-    try {
-      filesDir = context.filesDir;
-    } catch (error) {
-      console.error(`[ServerFiles] 获取 filesDir 失败: ${JSON.stringify(error)}`);
-      throw new Error('无法获取存储目录');
-    }
 
-    const outputDir = `${filesDir}/${FILES_OUTPUT_DIR}`;
-    let dirExists = false;
-    try {
-      dirExists = await fileIo.access(outputDir);
-    } catch (error) {
-      dirExists = false;
-    }
-    if (!dirExists) {
-      try {
-        await fileIo.mkdir(outputDir, true);
-      } catch (error) {
-        console.error(`[ServerFiles] 创建目录失败: ${JSON.stringify(error)}`);
-        throw new Error('无法创建输出目录');
+    let dirUri: string = this.fileOutputDirUri;
+    if (dirUri.length === 0) {
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const saveOptions = new picker.DocumentSaveOptions();
+      saveOptions.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+      const dirs = await documentPicker.save(saveOptions);
+      if (dirs.length === 0) {
+        throw new Error('未选择保存目录');
       }
+      dirUri = dirs[0];
+      this.fileOutputDirUri = dirUri;
     }
 
-    const destination = `${outputDir}/${fileName}`;
+    let destinationPath: string = '';
+    try {
+      destinationPath = new fileUri.FileUri(`${dirUri}/${fileName}`).path;
+    } catch (error) {
+      console.error(`[ServerFiles] 生成文件路径失败: ${JSON.stringify(error)}`);
+      throw new Error('无法生成文件路径');
+    }
+
     let fileDescriptor: number = -1;
     try {
-      const openedFile = await fileIo.open(destination,
-        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      const openedFile = await fileIo.open(destinationPath,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
       fileDescriptor = openedFile.fd;
     } catch (error) {
       console.error(`[ServerFiles] 打开文件失败: ${JSON.stringify(error)}`);
       throw new Error('无法创建文件');
     }
+
     try {
-      await fileIo.write(fileDescriptor, bytes);
+      const buffer = bytes;
+      let offset = 0;
+      while (offset < buffer.byteLength) {
+        const written = await fileIo.write(fileDescriptor,
+          buffer.slice(offset) as ArrayBuffer);
+        if (written <= 0) {
+          break;
+        }
+        offset += written;
+      }
+      if (offset !== buffer.byteLength) {
+        throw new Error('写入不完整');
+      }
+      await fileIo.fsync(fileDescriptor);
     } catch (error) {
       console.error(`[ServerFiles] 写入文件失败: ${JSON.stringify(error)}`);
       throw new Error('写入文件失败');
@@ -2828,7 +2841,7 @@ export struct ConnectionHome {
       }
     }
 
-    return fileName;
+    return destinationPath;
   }
 
   private formatServerFileSize(size: number): string {
@@ -2861,9 +2874,7 @@ export struct ConnectionHome {
   }
 
   private async openDownloadedFile(fileName: string): Promise<void> {
-    const connection = this.resolveConnectionForFiles();
-    if (connection === null || connection.accessTokenRef.trim().length === 0 ||
-      this.openingFileName.length > 0) {
+    if (this.openingFileName.length > 0) {
       return;
     }
 
@@ -2871,35 +2882,28 @@ export struct ConnectionHome {
     this.downloadFeedback = '';
 
     try {
-      const baseUrl = `${connection.scheme}://${connection.host}:${connection.port}`;
-      const downloaded = await this.gatewayClient.downloadFile({
-        baseUrl,
-        accessToken: connection.accessTokenRef,
-        fileName
-      });
-
-      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const documentPicker = new picker.DocumentViewPicker(context);
-      const uris = await documentPicker.save({ newFileNames: [fileName] });
-
-      if (uris.length === 0) {
-        this.openingFileName = '';
-        return;
+      const localPath = this.downloadedLocalPaths[fileName];
+      if (localPath === undefined || localPath.length === 0) {
+        const connection = this.resolveConnectionForFiles();
+        if (connection === null || connection.accessTokenRef.trim().length === 0) {
+          this.downloadFeedback = '请先下载该文件';
+          return;
+        }
+        const baseUrl = `${connection.scheme}://${connection.host}:${connection.port}`;
+        const downloaded = await this.gatewayClient.downloadFile({
+          baseUrl,
+          accessToken: connection.accessTokenRef,
+          fileName
+        });
+        const savedPath = await this.saveFileToOutputDir(downloaded.name, downloaded.bytes);
+        this.downloadedLocalPaths[fileName] = savedPath;
+        this.downloadedFileName = fileName;
+        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        await this.startOpenFile(context, savedPath, fileName);
+      } else {
+        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        await this.startOpenFile(context, localPath, fileName);
       }
-
-      const file = await fileIo.open(uris[0],
-        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      try {
-        await fileIo.write(file.fd, downloaded.bytes);
-      } finally {
-        await fileIo.close(file);
-      }
-
-      const want: Want = {
-        uri: uris[0],
-        type: resolveMimeType(fileName)
-      };
-      await context.startAbility(want);
       this.downloadFeedback = `已打开 ${fileName}`;
     } catch (error) {
       console.error(`[ServerFiles] 打开文件失败: ${JSON.stringify(error)}`);
@@ -2907,6 +2911,22 @@ export struct ConnectionHome {
     } finally {
       this.openingFileName = '';
     }
+  }
+
+  private async startOpenFile(context: common.UIAbilityContext, localPath: string, fileName: string): Promise<void> {
+    let localUri: string = '';
+    try {
+      localUri = fileUri.getUriFromPath(localPath);
+    } catch (error) {
+      console.error(`[ServerFiles] 生成文件 URI 失败: ${JSON.stringify(error)}`);
+      throw new Error('无法生成文件 URI');
+    }
+
+    const want: Want = {
+      uri: localUri,
+      type: resolveMimeType(fileName)
+    };
+    await context.startAbility(want);
   }
 
   private async sendResumeMessage(): Promise<void> {
