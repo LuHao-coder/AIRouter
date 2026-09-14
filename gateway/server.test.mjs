@@ -556,6 +556,53 @@ describe('files', () => {
     }
   });
 
+  it('isolates files per device via claim-on-first-download', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test3-'));
+    writeFileSync(path.join(filesRoot, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
+    writeFileSync(path.join(filesRoot, 'notes.txt'), 'hello');
+
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    try {
+      await withServer(async (baseUrl) => {
+        const deviceA = await activateDevice(baseUrl, { deviceId: 'dev-files-a' });
+        const deviceB = await activateDevice(baseUrl, { deviceId: 'dev-files-b' });
+        const authA = { authorization: `Bearer ${deviceA.accessToken}` };
+        const authB = { authorization: `Bearer ${deviceB.accessToken}` };
+
+        // Both see unclaimed files.
+        const listBeforeA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
+        const listBeforeB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
+        assert.deepEqual(listBeforeA.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
+        assert.deepEqual(listBeforeB.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
+
+        // A downloads report.pptx -> claims it.
+        const downloadByA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
+        assert.equal(downloadByA.status, 200);
+
+        // After claim, B can no longer see or download report.pptx.
+        const listAfterB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
+        assert.deepEqual(listAfterB.items.map((i) => i.name).sort(), ['notes.txt']);
+
+        const downloadByB = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authB });
+        assert.equal(downloadByB.status, 403);
+
+        // A still sees and can re-download its claimed file.
+        const listAfterA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
+        assert.deepEqual(listAfterA.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
+        const reDownloadByA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
+        assert.equal(reDownloadByA.status, 200);
+      });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
   it('returns 500 when files root is not configured', async () => {
     const originalRoot = process.env.FILES_ROOT;
     const originalWorkdir = process.env.OPENCODE_WORKDIR;

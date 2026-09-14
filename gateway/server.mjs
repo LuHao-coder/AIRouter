@@ -30,6 +30,8 @@ import {
   listGeneratedFiles,
   resolveDownloadPath,
   isAllowedFile,
+  resolveDownloadAccess,
+  claimFile,
 } from './file-service.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
@@ -519,7 +521,7 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
-        jsonResponse(response, 200, { items: listGeneratedFiles(filesRoot) });
+        jsonResponse(response, 200, { items: listGeneratedFiles(filesRoot, { deviceId: auth.deviceId }) });
         return;
       }
 
@@ -540,8 +542,21 @@ function createGatewayHandler(options = {}) {
           return;
         }
 
+        const access = resolveDownloadAccess(filesRoot, downloadMatch[1], auth.deviceId);
+        if (access.code === 'not_yours') {
+          errorResponse(response, 403, 'file_not_allowed', 'File belongs to another device');
+          return;
+        }
+        if (access.code !== 'ok') {
+          errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
+          return;
+        }
+
         try {
           const content = fs.readFileSync(target);
+          if (access.claim) {
+            claimFile(filesRoot, downloadMatch[1], auth.deviceId);
+          }
           const type = mimeTypeForFile(target);
           response.writeHead(200, {
             'content-type': type,
