@@ -27,11 +27,10 @@ import {
 } from './rate-limiter.mjs';
 import {
   resolveFilesRoot,
+  deviceWorkspace,
   listGeneratedFiles,
   resolveDownloadPath,
   isAllowedFile,
-  resolveDownloadAccess,
-  claimFile,
 } from './file-service.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
@@ -372,8 +371,26 @@ function createGatewayHandler(options = {}) {
         const auth = requireAuth(request, response);
         if (!auth) return;
 
-        const body = await readJson(request);
-        const cwd = normalizeResumeCwd(body.cwd);
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+
+        // 设备专属工作目录：强制会话 cwd 指向该设备目录，实现文件天然按设备隔离。
+        const workspace = deviceWorkspace(filesRoot, auth.deviceId);
+        if (!workspace) {
+          errorResponse(response, 400, 'invalid_device', 'Device id is required');
+          return;
+        }
+        try {
+          fs.mkdirSync(workspace, { recursive: true });
+        } catch (error) {
+          errorResponse(response, 500, 'workspace_create_failed', 'Could not create device workspace directory');
+          return;
+        }
+
+        const cwd = workspace;
         const session = await opencodeClient.startResume({ cwd });
         if (auth.deviceId && session.threadId) {
           if (!deviceSessions.has(auth.deviceId)) {
@@ -512,20 +529,26 @@ function createGatewayHandler(options = {}) {
         return;
       }
 
-      // ─── Files: List generated files ───
+      // ─── Files: List generated files (设备专属，只列本设备工作区) ───
       if (request.method === 'GET' && url.pathname === '/api/files') {
         const auth = requireAuth(request, response);
-        if (!auth) return;
+        if (!auth) return trigger;
         const filesRoot = resolveFilesRoot();
         if (!filesRoot) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
-        jsonResponse(response, 200, { items: listGeneratedFiles(filesRoot, { deviceId: auth.deviceId }) });
+        // AI 文件落在设备专属工作区 → 这里只列该设备自己的文件，实现严格隔离。
+        const workspace = deviceWorkspace(filesRoot, auth.deviceId);
+        if (!workspace) {
+          errorResponse(response, 400, 'invalid_device', 'Device id is required');
+          return;
+        }
+        jsonResponse(response, 200, { items: listGeneratedFiles(workspace) });
         return;
       }
 
-      // ─── Files: Download ───
+      // ─── Files: Download（仅限当前设备工作区，杜绝越权看他人文件） ───
       const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
       if (request.method === 'GET' && downloadMatch) {
         const auth = requireAuth(request, response);
@@ -533,6 +556,11 @@ function createGatewayHandler(options = {}) {
         const filesRoot = resolveFilesRoot();
         if (!filesRoot) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+        const filesRoot = deviceWorkspace(filesRoot, auth.deviceId);
+        if (!filesRoot) {
+          errorResponse(response, 400, 'invalid_device', 'Device id is required');
           return;
         }
 

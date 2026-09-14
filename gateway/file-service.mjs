@@ -8,6 +8,31 @@ export function resolveFilesRoot(env = process.env) {
   return env.FILES_ROOT?.trim() || env.OPENCODE_WORKDIR?.trim() || '';
 }
 
+/**
+ * 返回该设备的专属工作目录（FILES_ROOT/workspaces/<deviceId>）。
+ * 目录不存在时返回 null。用于严格按设备隔离：设备只能访问自己目录下的文件。
+ */
+export function deviceWorkspace(root, deviceId) {
+  if (!root || !deviceId) {
+    return null;
+  }
+  const safeId = String(deviceId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  return path.join(root, 'workspaces', safeId);
+}
+
+/** 设备专属目录必须存在才是有效工作区（避免设备目录被恶意创建前返回空列表误导）。 */
+export function deviceWorkspaceExists(root, deviceId) {
+  const dir = deviceWorkspace(root, deviceId);
+  if (!dir) {
+    return false;
+  }
+  try {
+    return statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function isAllowedFile(name) {
   const ext = path.extname(name).toLowerCase();
   return ALLOWED_EXTENSIONS.has(ext);
