@@ -61,8 +61,20 @@ function initDb() {
       device_id TEXT NOT NULL,
       created_at TEXT
     );
+  `);
 
-    -- 每台设备最多一个注册码（设备首次注册时自动分配、之后不可换绑）
+  // 迁移兼容：旧库可能把多个码绑到同一设备，先按设备保留最早一条，再建唯一索引，
+  // 避免 CREATE UNIQUE INDEX 因历史重复数据失败导致启动崩溃。
+  conn.prepare(`
+    DELETE FROM registration_codes
+     WHERE used_by_device IS NOT NULL
+       AND rowid NOT IN (
+         SELECT MIN(rowid) FROM registration_codes
+          WHERE used_by_device IS NOT NULL
+          GROUP BY used_by_device
+       )
+  `).run();
+  conn.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_registration_codes_device
       ON registration_codes(used_by_device) WHERE used_by_device IS NOT NULL;
   `);
