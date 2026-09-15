@@ -23,6 +23,7 @@ export interface RegisterRequest {
 export interface RegisterResponse {
   activationToken: string;
   challenge: string;
+  registrationCode?: string;
 }
 
 export interface ActivateRequest {
@@ -68,6 +69,7 @@ export interface LoginResponse {
   refreshToken: string;
   sessionName: string;
   expiresIn: number;
+  registrationCode?: string;
 }
 
 export interface ListResumesRequest {
@@ -237,11 +239,13 @@ interface LoginResponseBody {
   refreshToken: string;
   sessionName: string;
   expiresIn: number;
+  registrationCode?: string;
 }
 
 interface RegisterResponseBody {
   activationToken: string;
   challenge: string;
+  registrationCode?: string;
 }
 
 interface ChallengeResponseBody {
@@ -409,7 +413,8 @@ export class HttpGatewayClient implements GatewayClient {
     const body = JSON.parse(response.result) as RegisterResponseBody;
     return {
       activationToken: body.activationToken,
-      challenge: body.challenge
+      challenge: body.challenge,
+      registrationCode: body.registrationCode
     };
   }
 
@@ -433,7 +438,8 @@ export class HttpGatewayClient implements GatewayClient {
       accessToken: body.accessToken,
       refreshToken: body.refreshToken,
       sessionName: 'opencode-main',
-      expiresIn: 900
+      expiresIn: 900,
+      registrationCode: body.registrationCode
     };
   }
 

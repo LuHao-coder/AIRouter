@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { OpenCodeServerClient } from './opencode-server.mjs';
 import {
   verifyAccessToken,
-  isRegistrationCodeValid,
+  ensureDeviceRegistrationCode,
   createActivationChallenge,
   verifyActivation,
   createLoginChallenge,
@@ -164,21 +164,16 @@ function createGatewayHandler(options = {}) {
         const body = await readJson(request);
         const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
         const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
-        const registrationCode = typeof body.registrationCode === 'string' ? body.registrationCode.trim() : '';
-        const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : '';
 
-        if (!deviceId || !publicKey || !registrationCode) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId, publicKey, and registrationCode are required');
+        if (!deviceId || !publicKey) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
           return;
         }
 
-        if (!isRegistrationCodeValid(registrationCode, deviceId)) {
-          errorResponse(response, 401, 'invalid_code', 'Registration code is invalid, already used, or bound to another device');
-          return;
-        }
-
-        const challenge = createActivationChallenge(deviceId, publicKey, registrationCode);
-        jsonResponse(response, 200, challenge);
+        // 开放注册：首次注册时服务器为该设备随机分配注册码并绑定（此后不可更改/换绑）。
+        const registrationCode = ensureDeviceRegistrationCode(deviceId);
+        const challenge = createActivationChallenge(deviceId, publicKey);
+        jsonResponse(response, 200, { ...challenge, registrationCode });
         return;
       }
 
@@ -203,8 +198,7 @@ function createGatewayHandler(options = {}) {
         if (result.error) {
           const statusMap = {
             invalid_token: 400, device_mismatch: 403, token_used: 400,
-            token_expired: 400, no_public_key: 500, invalid_signature: 403,
-            registration_code_unavailable: 409
+            token_expired: 400, no_public_key: 500, invalid_signature: 403
           };
           errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
           return;
@@ -317,16 +311,16 @@ function createGatewayHandler(options = {}) {
         const body = await readJson(request);
         const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
         const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
-        const registrationCode = typeof body.registrationCode === 'string' ? body.registrationCode.trim() : '';
         const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : '';
         const mode = typeof body.mode === 'string' ? body.mode.trim() : 'reset';
 
-        if (!deviceId || !publicKey || !registrationCode) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId, publicKey, and registrationCode are required');
+        if (!deviceId || !publicKey) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
           return;
         }
 
-        const result = await reregisterDevice(deviceId, publicKey, registrationCode, deviceName, mode);
+        // 注册码无需输入：沿用该设备首次注册时自动分配的码。
+        const result = await reregisterDevice(deviceId, publicKey, deviceName, mode);
         if (result.error) {
           errorResponse(response, 401, result.error, result.error);
           return;
@@ -340,7 +334,11 @@ function createGatewayHandler(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/auth/me') {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        jsonResponse(response, 200, { deviceId: auth.deviceId, sessionName: 'opencode-main' });
+        jsonResponse(response, 200, {
+          deviceId: auth.deviceId,
+          sessionName: 'opencode-main',
+          registrationCode: ensureDeviceRegistrationCode(auth.deviceId)
+        });
         return;
       }
 

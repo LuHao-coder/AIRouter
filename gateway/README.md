@@ -37,16 +37,15 @@ node gateway/server.mjs
 
 ## 设备认证流程
 
-不使用账号密码。新设备流程：
+不使用账号密码，**注册开放**。新设备流程：
 
-1. 管理员用脚本随机生成一次性注册码（见 [docs/deploy.md](../docs/deploy.md)）：
-   `node scripts/generate-registration-code.mjs`。
-2. App 调用 `POST /api/auth/register` 携带注册码与设备 Ed25519 公钥。
-3. Gateway 返回 `activationToken` 与 `challenge`，App 用 HUKS 私钥签名后调用 `POST /api/auth/activate`。
-4. 激活成功返回 `accessToken`/`refreshToken`，之后请求携带 `authorization: Bearer <accessToken>`。
+1. App 调用 `POST /api/auth/register`，携带 `deviceId` 与设备 Ed25519 公钥（**无需注册码**）。
+2. 服务器在首次注册时**自动生成并绑定**一个随机注册码（`air-xxxxxxxx`），随响应返回。
+3. Gateway 返回 `activationToken`、`challenge`、`registrationCode`，App 用 HUKS 私钥签名后调用 `POST /api/auth/activate`。
+4. 激活成功返回 `accessToken`/`refreshToken`/`registrationCode`，之后请求携带 `authorization: Bearer <accessToken>`。
 
-注册码**一码一设备、一次性**：激活时即绑定到该设备，其他设备无法再使用。
-同一设备可再领新码（`POST /api/auth/reregister`），新旧码都指向同一 `deviceId`，因此文件不受影响。
+注册码由服务器自动分配、**一设备一码、只读**：App 端不可编辑；重复注册/重装设备始终返回同一个码，
+服务端绑定后不可更改/换绑。`GET /api/auth/me` 也会返回该码。
 
 ## 文件隔离
 

@@ -61,6 +61,10 @@ function initDb() {
       device_id TEXT NOT NULL,
       created_at TEXT
     );
+
+    -- 每台设备最多一个注册码（设备首次注册时自动分配、之后不可换绑）
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_registration_codes_device
+      ON registration_codes(used_by_device) WHERE used_by_device IS NOT NULL;
   `);
 
   try {
@@ -160,6 +164,25 @@ export function createRegistrationCode(code, maxUses = 1) {
     .prepare('INSERT INTO registration_codes (code, max_uses) VALUES (?, ?)')
     .run(code, maxUses);
   return code;
+}
+
+/** 按设备反向查询其注册码（用于自动分配 / 只读展示）。 */
+export function getRegistrationCodeByDevice(deviceId) {
+  return getDb()
+    .prepare('SELECT * FROM registration_codes WHERE used_by_device = ?')
+    .get(deviceId);
+}
+
+/**
+ * 为设备插入自动分配的注册码。used_by_device 上的唯一索引保证“一设备一码”，
+ * INSERT OR IGNORE 让并发注册时只落一条，之后由 getRegistrationCodeByDevice 读回。
+ */
+export function insertDeviceRegistrationCode(code, deviceId) {
+  const now = new Date().toISOString();
+  return getDb().prepare(`
+    INSERT OR IGNORE INTO registration_codes (code, used, uses, max_uses, used_by_device, used_at)
+    VALUES (?, 1, 1, -1, ?, ?)
+  `).run(code, deviceId, now);
 }
 
 /**

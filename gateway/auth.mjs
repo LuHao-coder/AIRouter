@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import {
-  getRegistrationCode,
-  bindRegistrationCode,
+  getRegistrationCodeByDevice,
+  insertDeviceRegistrationCode,
   saveActivationNonce,
   getActivationNonce,
   markActivationNonceUsed,
@@ -106,22 +106,24 @@ function verifyAccessToken(token) {
 }
 
 /**
- * 注册码有效性：存在、未用满、且未被其他设备绑定（一码一设备）。
- * 传入 deviceId 时，已绑定到同一设备的码仍可用于该设备。
+ * 自动为设备分配注册码：首次注册时随机生成并绑定该设备；之后始终返回同一个码，不可更改/换绑。
  */
-function isRegistrationCodeValid(code, deviceId) {
-  const row = getRegistrationCode(code);
-  if (!row) return false;
-  if (row.max_uses >= 0 && (row.uses || 0) >= row.max_uses) return false;
-  if (row.used_by_device && row.used_by_device !== deviceId) return false;
-  return true;
+function ensureDeviceRegistrationCode(deviceId) {
+  const existing = getRegistrationCodeByDevice(deviceId);
+  if (existing) {
+    return existing.code;
+  }
+  const code = `air-${crypto.randomBytes(8).toString('hex')}`;
+  insertDeviceRegistrationCode(code, deviceId);
+  const assigned = getRegistrationCodeByDevice(deviceId);
+  return assigned ? assigned.code : code;
 }
 
-function createActivationChallenge(deviceId, publicKeyPem, registrationCode) {
+function createActivationChallenge(deviceId, publicKeyPem) {
   const nonce = generateNonce();
   const activationToken = generateActivationToken();
   const exp = expiresAtMs(NONCE_TTL_MS);
-  saveActivationNonce(nonce, deviceId, activationToken, publicKeyPem, registrationCode, exp);
+  saveActivationNonce(nonce, deviceId, activationToken, publicKeyPem, '', exp);
   return { activationToken, challenge: nonce };
 }
 
@@ -149,20 +151,18 @@ function verifyActivation(deviceId, activationToken, signedChallenge) {
   }
   if (!valid) return { error: 'invalid_signature' };
 
-  // 激活成功的同时把注册码绑定到本设备（一码一设备、一次性）。绑定失败说明码被抢用。
-  if (nonceRow.registration_code) {
-    const bound = bindRegistrationCode(nonceRow.registration_code, deviceId);
-    if (!bound) return { error: 'registration_code_unavailable' };
-  }
   markActivationNonceUsed(nonceRow.nonce);
   upsertDevice(deviceId, publicKeyPem, '');
+
+  // 注册码在首次注册时已自动分配；这里再确保一次，返回给客户端只读展示。
+  const registrationCode = ensureDeviceRegistrationCode(deviceId);
 
   const accessToken = signAccessToken(deviceId);
   const refreshTokenPlain = generateRefreshToken();
   const refreshTokenHash = hashToken(refreshTokenPlain);
   saveRefreshToken(refreshTokenHash, deviceId, expiresAtMs(REFRESH_TOKEN_TTL_MS));
 
-  return { accessToken, refreshToken: refreshTokenPlain };
+  return { accessToken, refreshToken: refreshTokenPlain, registrationCode };
 }
 
 function createLoginChallenge(deviceId) {
@@ -221,24 +221,20 @@ function refreshAccessToken(refreshToken) {
   return { accessToken };
 }
 
-function reregisterDevice(deviceId, publicKeyPem, registrationCode, deviceName, mode) {
-  if (!isRegistrationCodeValid(registrationCode, deviceId)) {
-    return { error: 'invalid_registration_code' };
-  }
-
+function reregisterDevice(deviceId, publicKeyPem, deviceName, mode) {
   if (mode === 'reset') {
-    if (!bindRegistrationCode(registrationCode, deviceId)) {
-      return { error: 'invalid_registration_code' };
-    }
     upsertDevice(deviceId, publicKeyPem, deviceName || '');
     deleteRefreshTokensForDevice(deviceId);
+
+    // 注册码不重新分配：沿用该设备首次注册时绑定的码。
+    const registrationCode = ensureDeviceRegistrationCode(deviceId);
 
     const accessToken = signAccessToken(deviceId);
     const refreshTokenPlain = generateRefreshToken();
     const refreshTokenHash = hashToken(refreshTokenPlain);
     saveRefreshToken(refreshTokenHash, deviceId, expiresAtMs(REFRESH_TOKEN_TTL_MS));
 
-    return { status: 'completed', accessToken, refreshToken: refreshTokenPlain };
+    return { status: 'completed', accessToken, refreshToken: refreshTokenPlain, registrationCode };
   }
 
   if (mode === 'compromise') {
@@ -264,7 +260,7 @@ export {
   generateRefreshToken,
   signAccessToken,
   verifyAccessToken,
-  isRegistrationCodeValid,
+  ensureDeviceRegistrationCode,
   createActivationChallenge,
   verifyActivation,
   createLoginChallenge,

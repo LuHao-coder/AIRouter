@@ -600,7 +600,8 @@ export struct ConnectionHome {
   @State private reloginConnectionId: string = '';
   @State private draftAddress: string = '';
   @State private draftUsername: string = '';
-  @State private draftPassword: string = 'huaweI1234';
+  // 该字段现在仅用于“只读展示”服务器自动分配的注册码，不再由用户输入。
+  @State private draftPassword: string = '';
   @State private draftName: string = '';
   @State private feedback: string = '';
   @State private dialogFeedback: string = '';
@@ -919,7 +920,7 @@ export struct ConnectionHome {
     this.connectionActionMenuId = '';
     this.draftAddress = '';
     this.draftUsername = '';
-    this.draftPassword = 'huaweI1234';
+    this.draftPassword = '';
     this.draftName = '';
     this.feedback = '';
     this.dialogFeedback = '';
@@ -1353,25 +1354,21 @@ export struct ConnectionHome {
       this.feedback = '';
       return;
     }
-    if (identityChanged && this.draftPassword.trim().length === 0) {
-      this.passwordFeedback = '更改服务器地址时需要重新输入注册码';
-      this.dialogFeedback = '';
-      this.feedback = '';
-      return;
-    }
-
     const name = resolveConnectionName(this.draftName, '', '', normalized.host);
     let nextAccessTokenRef: string | undefined = undefined;
     let nextRefreshTokenRef: string | undefined = undefined;
+    let nextRegistrationCode: string | undefined = undefined;
 
-    if (this.draftPassword.trim().length > 0) {
+    // 服务器地址变化或尚无凭据时重新注册；开放注册无需注册码，服务器自动分配。
+    const needsRegistration = identityChanged || selected.accessTokenRef.trim().length === 0;
+    if (needsRegistration) {
       try {
         const keyPair = await ensureDeviceKeyPair();
         const registerResult = await this.gatewayClient.register({
           baseUrl: normalized.baseUrl,
           deviceId: this.deviceId,
           publicKey: keyPair.publicKeyPem,
-          registrationCode: this.draftPassword,
+          registrationCode: '',
           deviceName: 'HarmonyOS Phone'
         });
         const sig = await signChallenge(registerResult.challenge);
@@ -1383,6 +1380,9 @@ export struct ConnectionHome {
         });
         nextAccessTokenRef = activateResult.accessToken;
         nextRefreshTokenRef = activateResult.refreshToken;
+        if (activateResult.registrationCode !== undefined) {
+          nextRegistrationCode = activateResult.registrationCode;
+        }
       } catch (error) {
         this.dialogFeedback = this.resolveLoginFailureText(error as Error);
         this.feedback = '';
@@ -1401,7 +1401,7 @@ export struct ConnectionHome {
       lastUsedAt: new Date().toISOString(),
       accessTokenRef: nextAccessTokenRef,
       refreshTokenRef: nextRefreshTokenRef,
-      privateKeyRef: this.draftPassword.trim().length > 0 ? this.draftPassword : undefined
+      privateKeyRef: nextRegistrationCode
     });
     const updatedConnection = this.connectionById(nextConnectionId);
     if (updatedConnection !== undefined && shouldClearConnectionResumeCache(selected, updatedConnection)) {
@@ -1902,7 +1902,7 @@ export struct ConnectionHome {
       return;
     }
 
-    const errors = resolveConnectionFormErrors(this.draftAddress, this.draftPassword, true);
+    const errors = resolveConnectionFormErrors(this.draftAddress, this.draftPassword, false);
     if (errors.hasError) {
       this.applyFieldFeedback(errors);
       this.dialogFeedback = '';
@@ -1925,11 +1925,12 @@ export struct ConnectionHome {
     console.info(`[addConnection] 登录 baseUrl: ${normalized.baseUrl}, scheme: ${normalized.scheme}`);
     try {
       const keyPair = await ensureDeviceKeyPair();
+      // 开放注册：无需注册码，服务器会为该设备自动分配。
       const registerResult = await this.gatewayClient.register({
         baseUrl: normalized.baseUrl,
         deviceId: this.deviceId,
         publicKey: keyPair.publicKeyPem,
-        registrationCode: this.draftPassword,
+        registrationCode: '',
         deviceName: 'HarmonyOS Phone'
       });
       const sig = await signChallenge(registerResult.challenge);
@@ -1970,7 +1971,7 @@ export struct ConnectionHome {
       status: 'online',
       accessTokenRef: loginResponse.accessToken,
       refreshTokenRef: loginResponse.refreshToken,
-      privateKeyRef: ''
+      privateKeyRef: loginResponse.registrationCode !== undefined ? loginResponse.registrationCode : ''
     };
 
     const nextConnections = appendSavedConnection(this.connections, nextConnection);
@@ -2041,7 +2042,8 @@ export struct ConnectionHome {
     this.draftName = connection.name;
     this.draftAddress = connection.port === 8443 ? connection.host : `${connection.host}:${connection.port}`;
     this.draftUsername = '';
-    this.draftPassword = '';
+    // 只读展示服务器已分配的注册码。
+    this.draftPassword = connection.privateKeyRef;
     this.selectedConnectionId = connection.id;
     this.swipedConnectionId = '';
     this.connectionActionMenuId = '';
@@ -2082,7 +2084,8 @@ export struct ConnectionHome {
       lastUsedAt: touchLastUsedAt ? new Date().toISOString() : connection.lastUsedAt,
       accessTokenRef: accessToken,
       refreshTokenRef: refreshToken,
-      privateKeyRef: ''
+      // 保留服务器自动分配的注册码，登录/刷新不改动它。
+      privateKeyRef: connection.privateKeyRef
     }).map((item: SavedConnection) => {
       if (item.id !== connection.id) {
         return item;
@@ -2351,13 +2354,6 @@ export struct ConnectionHome {
     const foundConnection = this.connectionById(targetId);
     if (foundConnection === undefined) {
       this.dialogFeedback = '连接已不存在';
-      this.feedback = '';
-      return;
-    }
-
-    if (this.draftPassword.trim().length === 0) {
-      this.passwordFeedback = '请填写注册码';
-      this.dialogFeedback = '';
       this.feedback = '';
       return;
     }
@@ -4617,6 +4613,40 @@ export struct ConnectionHome {
     .alignItems(HorizontalAlign.Start)
   }
 
+  // 注册码由服务器自动分配、不可修改：这里只读展示。
+  @Builder
+  private ReadonlyCodeField(label: string, value: string, hint: string) {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Text(label)
+          .fontSize(14)
+          .fontColor(TERMINAL_LABEL_COLOR)
+          .fontWeight(FontWeight.Medium)
+
+        Text('自动分配 · 不可修改')
+          .fontSize(11)
+          .fontColor(TERMINAL_DIM_TEXT_COLOR)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(value.length > 0 ? value : hint)
+        .width('100%')
+        .height(44)
+        .fontSize(15)
+        .fontColor(value.length > 0 ? TERMINAL_TEXT_COLOR : TERMINAL_DIM_TEXT_COLOR)
+        .backgroundColor(TERMINAL_INPUT_COLOR)
+        .borderRadius(10)
+        .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+        .padding({ left: 12, right: 12, top: 12 })
+        .textAlign(TextAlign.Start)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   private DialogFrame(title: string) {
     Stack({ alignContent: Alignment.Center }) {
@@ -4704,8 +4734,7 @@ export struct ConnectionHome {
                 .borderRadius(10)
             }
 
-            this.Field('注册码', this.draftPassword,
-            this.dialog === ConnectionDialog.EDIT ? '留空保留当前凭据' : '请输入注册码')
+            this.ReadonlyCodeField('注册码', this.draftPassword, '连接后自动分配')
           this.Field('连接名称', this.draftName, '可选')
 
           Column({ space: 4 }) {
@@ -5701,7 +5730,7 @@ export struct ConnectionHome {
                 .borderRadius(10)
             }
 
-            this.Field('注册码', this.draftPassword, '请输入注册码')
+            this.ReadonlyCodeField('注册码', this.draftPassword, '连接后自动分配')
             this.Field('连接名称', this.draftName, '可选')
 
             Column({ space: 4 }) {

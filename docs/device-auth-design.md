@@ -117,35 +117,37 @@ App                                        Server
 1. 本地生成 Ed25519 密钥对
    (HUKS 安全存储，私钥不可导出)
 2. 导出公钥 PEM
-3. 用户输入服务器地址 + 注册码
+3. 用户只填服务器地址（**不需要注册码**，注册开放）
 4. POST /api/auth/register {
-     deviceId, publicKey, deviceName,
-     registrationCode
+     deviceId, publicKey, deviceName
    }
-                                          5. 验证注册码有效且未使用
+                                          5. 若该设备已有注册码则沿用；否则随机生成
+                                             一个并绑定该设备（一设备一码，不可换绑）
                                           6. 生成 ActivationToken (UUID)
                                           7. 生成随机 challenge (128bit)
                                           8. 存储 nonce_hash + activation_token
-                                             绑定 deviceId，TTL=2分钟
-                                          9. 返回 { activationToken, challenge }
+                                              绑定 deviceId，TTL=2分钟
+                                          9. 返回 { activationToken, challenge,
+                                                    registrationCode }
 10. 用私钥签名 challenge
 11. POST /api/auth/activate {
       deviceId,              ← 必须与 register 时一致
       activationToken,
       signedChallenge
     }
-                                         12. 验证 ActivationToken:
-                                             - 未过期
-                                             - 未使用
-                                             - 绑定的 deviceId 与请求一致
-                                         13. 验证 nonce 未使用且未过期
-                                         14. 用公钥验证签名
-                                         15. 存储设备公钥到 devices 表
-                                         16. 标记注册码为已使用
-                                         17. 标记 nonce 为已使用
-                                         18. 签发 JWT (15min Access + 7d Refresh)
-                                         19. 返回 { accessToken, refreshToken }
-20. 本地保存 RefreshToken
+                                          12. 验证 ActivationToken:
+                                              - 未过期
+                                              - 未使用
+                                              - 绑定的 deviceId 与请求一致
+                                          13. 验证 nonce 未使用且未过期
+                                          14. 用公钥验证签名
+                                          15. 存储设备公钥到 devices 表
+                                          16. 确保注册码已分配（不重新生成）
+                                          17. 标记 nonce 为已使用
+                                          18. 签发 JWT (15min Access + 7d Refresh)
+                                          19. 返回 { accessToken, refreshToken,
+                                                    registrationCode }
+20. 本地保存 RefreshToken；注册码只读展示
 ```
 
 ### 3.2 后续登录（签名验证）
@@ -241,15 +243,14 @@ App                                        Server
 
 ### 4.1 POST /api/auth/register
 
-注册码验证，返回激活挑战。
+开放注册（无需注册码）：首次注册时服务器自动为该设备分配注册码，返回激活挑战。
 
 **请求：**
 ```json
 {
   "deviceId": "uuid-xxxx",
   "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
-  "deviceName": "HarmonyOS Phone",
-  "registrationCode": "huaweI1234"
+  "deviceName": "HarmonyOS Phone"
 }
 ```
 
@@ -257,13 +258,15 @@ App                                        Server
 ```json
 {
   "activationToken": "act-uuid-xxxx",
-  "challenge": "base64-random-128bit"
+  "challenge": "base64-random-128bit",
+  "registrationCode": "air-0123456789abcdef"
 }
 ```
 
+`registrationCode` 由服务器生成并绑定该 `deviceId`；同一设备再次注册返回同一个码（不可更改/换绑）。
+
 **错误响应：**
-- 400: 注册码无效或已使用
-- 409: 该设备已注册（需用 /reregister）
+- 400: 缺少 deviceId 或 publicKey
 - 429: 速率限制
 
 ### 4.2 POST /api/auth/activate
@@ -518,13 +521,14 @@ class RateLimiter {
 - Ed25519 密钥对
 - 签名算法: EdDSA (Ed25519)
 
-### 注册码安全
+### 注册码（自动分配）
 
-- 管理员用 `scripts/generate-registration-code.mjs` 随机生成，默认**一次性**（`max_uses=1`）
-- 激活时通过原子 `UPDATE ... WHERE used_by_device IS NULL OR used_by_device = ?` 绑定到该设备
-- **一码一设备**：已被设备 A 绑定的码，设备 B 使用会被拒绝
-- 同一设备可再领新码（`reregister`），新旧码都归同一 `deviceId`，文件按设备共享
-- 注册码仅用于首次注册与重新注册，日常登录走 Ed25519 挑战-签名，不再用码
+- **注册开放**：注册不再要求输入注册码（`register` 只需 deviceId + publicKey）。
+- 首次注册时服务器随机生成注册码并绑定该 `deviceId`（`used_by_device` 上有唯一索引，保证一设备一码）。
+- **不可更改/换绑**：重复注册、重装、`reregister` 都返回同一个码，且不会分配给其他设备。
+- App 端**只读展示**该码（`SavedConnection.privateKeyRef`），用户不可编辑。
+- `GET /api/auth/me`、`register`、`activate` 响应均返回 `registrationCode`。
+- `scripts/generate-registration-code.mjs` 仍保留，用于需要**预置/手工**发码的场景（非默认流程）。
 
 ### device_name 安全
 

@@ -88,16 +88,17 @@ node scripts/generate-signing-key.mjs
 
 ### 4. 初始化数据库
 
-数据库在网关首次启动时自动创建（`data/devices.db`），无需手动初始化。首次启动后随机生成一次性注册码：
+数据库在网关首次启动时自动创建（`data/devices.db`），无需手动初始化。
+
+**注册是开放的**：设备首次注册时服务器会**自动为其分配一个注册码**（形如 `air-xxxxxxxxxxxxxxxx`），
+绑定该设备且之后不可更改/换绑，App 端只读展示。因此**默认无需预先发码**。
+仅在需要预置/手工发码时才用：
 
 ```bash
 cd /opt/codex-router/codex-router-master
-node scripts/generate-registration-code.mjs        # 生成 1 个一次性码
-node scripts/generate-registration-code.mjs 5      # 一次生成 5 个
+node scripts/generate-registration-code.mjs        # 生成 1 个码（可选）
+node scripts/generate-registration-code.mjs 5      # 一次生成 5 个（可选）
 ```
-
-生成的注册码格式形如 `air-xxxxxxxxxxxxxxxx`。**每个注册码只能绑定一台设备**（激活即绑定、用后失效），
-所以每台设备各发一个；同一设备换机/重装再领新码即可，新旧码都归属同一 `deviceId`，文件照常访问。
 
 ### 5. 配置环境变量
 

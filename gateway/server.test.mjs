@@ -26,17 +26,6 @@ process.env.AI_ROUTER_DB_PATH = path.join(tmp, 'test.db');
 const { createGatewayServer } = await import('./server.mjs');
 const { getDb, saveDeviceSession } = await import('./db.mjs');
 
-let registrationCodeSeq = 0;
-/** 随机生成一次性注册码并入库；激活时会绑定到使用它的设备（一码一设备）。 */
-function issueRegistrationCode(maxUses = 1) {
-  registrationCodeSeq += 1;
-  const code = `test-${registrationCodeSeq}-${crypto.randomBytes(4).toString('hex')}`;
-  getDb()
-    .prepare('INSERT INTO registration_codes (code, max_uses) VALUES (?, ?)')
-    .run(code, maxUses);
-  return code;
-}
-
 after(() => {
   try {
     getDb().close();
@@ -71,6 +60,10 @@ async function withServer(testBody, options = {}) {
         }
         resolve();
       });
+      // 强制关闭 keep-alive 连接，避免 server.close 等待闲置 socket 超时。
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
     });
   }
 }
@@ -79,7 +72,7 @@ function sign(buffer, privateKey) {
   return crypto.sign(null, buffer, privateKey).toString('base64');
 }
 
-async function registerDevice(baseUrl, { deviceId, registrationCode = issueRegistrationCode() }) {
+async function registerDevice(baseUrl, { deviceId }) {
   const { publicKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' });
 
@@ -92,7 +85,6 @@ async function registerDevice(baseUrl, { deviceId, registrationCode = issueRegis
     body: JSON.stringify({
       deviceId,
       publicKey: publicKeyPem,
-      registrationCode,
       deviceName: 'HarmonyOS Phone'
     })
   });
@@ -100,7 +92,7 @@ async function registerDevice(baseUrl, { deviceId, registrationCode = issueRegis
   return { response, publicKeyPem };
 }
 
-async function activateDevice(baseUrl, { deviceId, registrationCode = issueRegistrationCode() }) {
+async function activateDevice(baseUrl, { deviceId }) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' });
 
@@ -113,12 +105,11 @@ async function activateDevice(baseUrl, { deviceId, registrationCode = issueRegis
     body: JSON.stringify({
       deviceId,
       publicKey: publicKeyPem,
-      registrationCode,
       deviceName: 'HarmonyOS Phone'
     })
   });
   assert.equal(registerResponse.status, 200);
-  const { activationToken, challenge } = await registerResponse.json();
+  const { activationToken, challenge, registrationCode } = await registerResponse.json();
 
   const signedChallenge = sign(Buffer.from(challenge, 'utf8'), privateKey);
 
@@ -130,7 +121,13 @@ async function activateDevice(baseUrl, { deviceId, registrationCode = issueRegis
 
   assert.equal(activateResponse.status, 200);
   const body = await activateResponse.json();
-  return { deviceId, privateKey, accessToken: body.accessToken, refreshToken: body.refreshToken };
+  return {
+    deviceId,
+    privateKey,
+    accessToken: body.accessToken,
+    refreshToken: body.refreshToken,
+    registrationCode: body.registrationCode ?? registrationCode
+  };
 }
 
 async function loginDevice(baseUrl, { deviceId, privateKey }) {
@@ -204,48 +201,28 @@ describe('gateway', () => {
     });
   });
 
-  it('rejects register with an invalid registration code', async () => {
+  it('auto-assigns a distinct immutable registration code per device', async () => {
     await withServer(async (baseUrl) => {
-      const { response } = await registerDevice(baseUrl, {
-        deviceId: 'dev-invalid-code',
-        registrationCode: 'not-a-real-code'
+      // 开放注册：不传注册码，服务器自动分配。
+      const deviceA = await activateDevice(baseUrl, { deviceId: 'dev-auto-a' });
+      const deviceB = await activateDevice(baseUrl, { deviceId: 'dev-auto-b' });
+
+      assert.match(deviceA.registrationCode, /^air-[0-9a-f]{16}$/);
+      assert.match(deviceB.registrationCode, /^air-[0-9a-f]{16}$/);
+      assert.notEqual(deviceA.registrationCode, deviceB.registrationCode);
+
+      // /me 返回同一个码（不可更改）。
+      const meResponse = await fetch(`${baseUrl}/api/auth/me`, {
+        headers: { authorization: `Bearer ${deviceA.accessToken}` }
       });
+      assert.equal(meResponse.status, 200);
+      const me = await meResponse.json();
+      assert.equal(me.registrationCode, deviceA.registrationCode);
 
-      assert.equal(response.status, 401);
-      const body = await response.json();
-      assert.equal(body.error.code, 'invalid_code');
-    });
-  });
-
-  it('binds a registration code to the first device and rejects other devices', async () => {
-    await withServer(async (baseUrl) => {
-      const code = issueRegistrationCode();
-      await activateDevice(baseUrl, { deviceId: 'dev-code-owner', registrationCode: code });
-
-      const { response } = await registerDevice(baseUrl, {
-        deviceId: 'dev-code-thief',
-        registrationCode: code
-      });
-
-      assert.equal(response.status, 401);
-      const body = await response.json();
-      assert.equal(body.error.code, 'invalid_code');
-    });
-  });
-
-  it('rejects reusing a one-time registration code for the same device', async () => {
-    await withServer(async (baseUrl) => {
-      const code = issueRegistrationCode();
-      await activateDevice(baseUrl, { deviceId: 'dev-code-reuse', registrationCode: code });
-
-      const { response } = await registerDevice(baseUrl, {
-        deviceId: 'dev-code-reuse',
-        registrationCode: code
-      });
-
-      assert.equal(response.status, 401);
-      const body = await response.json();
-      assert.equal(body.error.code, 'invalid_code');
+      // 同一设备再次注册（模拟重装）仍拿到原来的码。
+      const { response } = await registerDevice(baseUrl, { deviceId: 'dev-auto-a' });
+      const again = await response.json();
+      assert.equal(again.registrationCode, deviceA.registrationCode);
     });
   });
 
@@ -763,25 +740,20 @@ describe('files', () => {
     }
   });
 
-  it('shares one workspace when a device registers with multiple codes', async () => {
+  it('shares one workspace across re-registrations of the same device', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test4-'));
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
     try {
       await withServer(async (baseUrl) => {
-        // 同一设备先后用两个不同注册码激活 → 仍归属同一 deviceId，共享同一工作区。
-        const first = await activateDevice(baseUrl, {
-          deviceId: 'dev-multi-code',
-          registrationCode: issueRegistrationCode()
-        });
+        // 同一设备先后两次注册（模拟重装）→ 仍是同一 deviceId、同一注册码、同一工作区。
+        const first = await activateDevice(baseUrl, { deviceId: 'dev-multi-code' });
         const ws = deviceWorkspace(filesRoot, 'dev-multi-code');
         mkdirSync(ws, { recursive: true });
         writeFileSync(path.join(ws, 'shared.md'), 'shared-bytes');
 
-        const second = await activateDevice(baseUrl, {
-          deviceId: 'dev-multi-code',
-          registrationCode: issueRegistrationCode()
-        });
+        const second = await activateDevice(baseUrl, { deviceId: 'dev-multi-code' });
+        assert.equal(second.registrationCode, first.registrationCode);
 
         const headers = { authorization: `Bearer ${second.accessToken}` };
         const list = await (await fetch(`${baseUrl}/api/files`, { headers })).json();
@@ -791,7 +763,7 @@ describe('files', () => {
         assert.equal(download.status, 200);
         assert.equal(await download.text(), 'shared-bytes');
 
-        // 旧注册码换来的 token 也仍指向同一设备，同样能访问。
+        // 旧的 token 也仍指向同一设备，同样能访问。
         const oldDownload = await fetch(`${baseUrl}/api/files/shared.md/download`, {
           headers: { authorization: `Bearer ${first.accessToken}` }
         });
