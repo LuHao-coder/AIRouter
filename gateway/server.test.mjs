@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { deviceWorkspace } from './file-service.mjs';
 
 const tmp = mkdtempSync(path.join(tmpdir(), 'airouter-gateway-test-'));
 
@@ -25,10 +26,16 @@ process.env.AI_ROUTER_DB_PATH = path.join(tmp, 'test.db');
 const { createGatewayServer } = await import('./server.mjs');
 const { getDb } = await import('./db.mjs');
 
-const REGISTRATION_CODE = 'test-registration-code';
-getDb()
-  .prepare('INSERT INTO registration_codes (code, max_uses) VALUES (?, -1)')
-  .run(REGISTRATION_CODE);
+let registrationCodeSeq = 0;
+/** 随机生成一次性注册码并入库；激活时会绑定到使用它的设备（一码一设备）。 */
+function issueRegistrationCode(maxUses = 1) {
+  registrationCodeSeq += 1;
+  const code = `test-${registrationCodeSeq}-${crypto.randomBytes(4).toString('hex')}`;
+  getDb()
+    .prepare('INSERT INTO registration_codes (code, max_uses) VALUES (?, ?)')
+    .run(code, maxUses);
+  return code;
+}
 
 after(() => {
   try {
@@ -72,7 +79,7 @@ function sign(buffer, privateKey) {
   return crypto.sign(null, buffer, privateKey).toString('base64');
 }
 
-async function registerDevice(baseUrl, { deviceId, registrationCode = REGISTRATION_CODE }) {
+async function registerDevice(baseUrl, { deviceId, registrationCode = issueRegistrationCode() }) {
   const { publicKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' });
 
@@ -93,7 +100,7 @@ async function registerDevice(baseUrl, { deviceId, registrationCode = REGISTRATI
   return { response, publicKeyPem };
 }
 
-async function activateDevice(baseUrl, { deviceId, registrationCode = REGISTRATION_CODE }) {
+async function activateDevice(baseUrl, { deviceId, registrationCode = issueRegistrationCode() }) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' });
 
@@ -202,6 +209,38 @@ describe('gateway', () => {
       const { response } = await registerDevice(baseUrl, {
         deviceId: 'dev-invalid-code',
         registrationCode: 'not-a-real-code'
+      });
+
+      assert.equal(response.status, 401);
+      const body = await response.json();
+      assert.equal(body.error.code, 'invalid_code');
+    });
+  });
+
+  it('binds a registration code to the first device and rejects other devices', async () => {
+    await withServer(async (baseUrl) => {
+      const code = issueRegistrationCode();
+      await activateDevice(baseUrl, { deviceId: 'dev-code-owner', registrationCode: code });
+
+      const { response } = await registerDevice(baseUrl, {
+        deviceId: 'dev-code-thief',
+        registrationCode: code
+      });
+
+      assert.equal(response.status, 401);
+      const body = await response.json();
+      assert.equal(body.error.code, 'invalid_code');
+    });
+  });
+
+  it('rejects reusing a one-time registration code for the same device', async () => {
+    await withServer(async (baseUrl) => {
+      const code = issueRegistrationCode();
+      await activateDevice(baseUrl, { deviceId: 'dev-code-reuse', registrationCode: code });
+
+      const { response } = await registerDevice(baseUrl, {
+        deviceId: 'dev-code-reuse',
+        registrationCode: code
       });
 
       assert.equal(response.status, 401);
@@ -326,9 +365,13 @@ describe('gateway', () => {
   });
 
   it('lists only sessions created by the device', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-resumes-test-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
     const opencodeClient = {
       async startResume({ cwd }) {
-        assert.equal(cwd, '~');
+        // cwd 现在强制为设备专属工作区目录（由服务器注入），任何该设备目录皆可。
+        assert.match(cwd, /workspaces[/\\]dev-resumes$/);
         return { threadId: 'ses_router', title: 'Port router to OpenCode', cwd, status: 'idle' };
       },
       async listResumes({ limit }) {
@@ -351,28 +394,37 @@ describe('gateway', () => {
       }
     };
 
-    await withServer(async (baseUrl) => {
-      const device = await activateDevice(baseUrl, { deviceId: 'dev-resumes' });
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-resumes' });
 
-      const createResponse = await fetch(`${baseUrl}/api/opencode/resumes`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${device.accessToken}`,
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({ cwd: '~' })
-      });
-      assert.equal(createResponse.status, 200);
+        const createResponse = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${device.accessToken}`,
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({ cwd: '~' })
+        });
+        assert.equal(createResponse.status, 200);
 
-      const response = await fetch(`${baseUrl}/api/opencode/resumes`, {
-        headers: { authorization: `Bearer ${device.accessToken}` }
-      });
+        const response = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
 
-      assert.equal(response.status, 200);
-      const body = await response.json();
-      assert.equal(body.items.length, 1);
-      assert.equal(body.items[0].id, 'ses_router');
-    }, { opencodeClient });
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.equal(body.items.length, 1);
+        assert.equal(body.items[0].id, 'ses_router');
+      }, { opencodeClient });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
   });
 
   it('sends a message to an OpenCode resume session', async () => {
@@ -475,20 +527,20 @@ describe('gateway', () => {
 });
 
 describe('files', () => {
-  it('lists and downloads allowed generated files', async () => {
+  it('lists and downloads files from the device-exclusive workspace', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test-'));
-    writeFileSync(path.join(filesRoot, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
-    writeFileSync(path.join(filesRoot, 'notes.txt'), 'hello');
-    writeFileSync(path.join(filesRoot, 'secret.sh'), '#!/bin/sh');
-    mkdirSync(path.join(filesRoot, '.git'), { recursive: true });
-    writeFileSync(path.join(filesRoot, '.git', 'ignored.md'), 'ignored');
-    writeFileSync(path.join(filesRoot, '.hidden.txt'), 'secret');
-
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
     try {
       await withServer(async (baseUrl) => {
-        const device = await activateDevice(baseUrl, { deviceId: 'dev-files' });
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-files-list' });
+        // 文件落在设备专属工作区（<FILES_ROOT>/workspaces/<deviceId>），列表/下载只该目录。
+        const devWorkspace = deviceWorkspace(filesRoot, 'dev-files-list');
+        mkdirSync(devWorkspace, { recursive: true });
+        writeFileSync(path.join(devWorkspace, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
+        writeFileSync(path.join(devWorkspace, 'notes.txt'), 'hello');
+        writeFileSync(path.join(filesRoot, 'secret.sh'), '#!/bin/sh');
+        writeFileSync(path.join(filesRoot, '.hidden.txt'), 'secret');
 
         const listResponse = await fetch(`${baseUrl}/api/files`, {
           headers: { authorization: `Bearer ${device.accessToken}` }
@@ -496,6 +548,7 @@ describe('files', () => {
         assert.equal(listResponse.status, 200);
         const { items } = await listResponse.json();
         const names = items.map((item) => item.name).sort();
+        // 设备目录外的全局文件不可见 → 只列本设备工作区产物，越权文件天然不可达。
         assert.deepEqual(names, ['notes.txt', 'report.pptx']);
 
         const downloadResponse = await fetch(`${baseUrl}/api/files/report.pptx/download`, {
@@ -556,11 +609,8 @@ describe('files', () => {
     }
   });
 
-  it('isolates files per device via claim-on-first-download', async () => {
+  it('isolates files per device-exclusive workspace', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test3-'));
-    writeFileSync(path.join(filesRoot, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
-    writeFileSync(path.join(filesRoot, 'notes.txt'), 'hello');
-
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
     try {
@@ -570,28 +620,72 @@ describe('files', () => {
         const authA = { authorization: `Bearer ${deviceA.accessToken}` };
         const authB = { authorization: `Bearer ${deviceB.accessToken}` };
 
-        // Both see unclaimed files.
-        const listBeforeA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
-        const listBeforeB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
-        assert.deepEqual(listBeforeA.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
-        assert.deepEqual(listBeforeB.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
+        // 各设备产物分别落在自己的专属工作区。
+        const wsA = deviceWorkspace(filesRoot, 'dev-files-a');
+        const wsB = deviceWorkspace(filesRoot, 'dev-files-b');
+        mkdirSync(wsA, { recursive: true });
+        mkdirSync(wsB, { recursive: true });
+        writeFileSync(path.join(wsA, 'report.pptx'), Buffer.from('a-report'));
+        writeFileSync(path.join(wsB, 'notes.txt'), 'b-notes');
 
-        // A downloads report.pptx -> claims it.
-        const downloadByA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
-        assert.equal(downloadByA.status, 200);
+        // 各自只看到自己工作区内的文件。
+        const listA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
+        const listB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
+        assert.deepEqual(listA.items.map((i) => i.name).sort(), ['report.pptx']);
+        assert.deepEqual(listB.items.map((i) => i.name).sort(), ['notes.txt']);
 
-        // After claim, B can no longer see or download report.pptx.
-        const listAfterB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
-        assert.deepEqual(listAfterB.items.map((i) => i.name).sort(), ['notes.txt']);
+        // A 能下载自己的文件。
+        const downloadA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
+        assert.equal(downloadA.status, 200);
+        assert.equal(await downloadA.text(), 'a-report');
 
+        // B 的工作区里没有该文件，无法越权下载。
         const downloadByB = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authB });
-        assert.equal(downloadByB.status, 403);
+        assert.equal(downloadByB.status, 404);
+      });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
 
-        // A still sees and can re-download its claimed file.
-        const listAfterA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
-        assert.deepEqual(listAfterA.items.map((i) => i.name).sort(), ['notes.txt', 'report.pptx']);
-        const reDownloadByA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
-        assert.equal(reDownloadByA.status, 200);
+  it('shares one workspace when a device registers with multiple codes', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test4-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    try {
+      await withServer(async (baseUrl) => {
+        // 同一设备先后用两个不同注册码激活 → 仍归属同一 deviceId，共享同一工作区。
+        const first = await activateDevice(baseUrl, {
+          deviceId: 'dev-multi-code',
+          registrationCode: issueRegistrationCode()
+        });
+        const ws = deviceWorkspace(filesRoot, 'dev-multi-code');
+        mkdirSync(ws, { recursive: true });
+        writeFileSync(path.join(ws, 'shared.md'), 'shared-bytes');
+
+        const second = await activateDevice(baseUrl, {
+          deviceId: 'dev-multi-code',
+          registrationCode: issueRegistrationCode()
+        });
+
+        const headers = { authorization: `Bearer ${second.accessToken}` };
+        const list = await (await fetch(`${baseUrl}/api/files`, { headers })).json();
+        assert.deepEqual(list.items.map((i) => i.name), ['shared.md']);
+
+        const download = await fetch(`${baseUrl}/api/files/shared.md/download`, { headers });
+        assert.equal(download.status, 200);
+        assert.equal(await download.text(), 'shared-bytes');
+
+        // 旧注册码换来的 token 也仍指向同一设备，同样能访问。
+        const oldDownload = await fetch(`${baseUrl}/api/files/shared.md/download`, {
+          headers: { authorization: `Bearer ${first.accessToken}` }
+        });
+        assert.equal(oldDownload.status, 200);
       });
     } finally {
       if (originalRoot === undefined) {

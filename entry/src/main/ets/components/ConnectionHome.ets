@@ -11,6 +11,7 @@ import {
   GatewayHttpError,
   GatewayNetworkError,
   HttpGatewayClient,
+  isActiveResumeTurnStatus,
   isGatewayAuthenticationError,
   isGatewayNetworkError,
   LoginResponse,
@@ -139,6 +140,7 @@ const RESUME_MD_BLOCK_LIST: string = 'list';
 const RESUME_MD_BLOCK_QUOTE: string = 'quote';
 const RESUME_MD_BLOCK_DIVIDER: string = 'divider';
 const RESUME_MD_BLOCK_PARAGRAPH: string = 'paragraph';
+const RESUME_AWAIT_REPLY_TIMEOUT_MS: number = 5 * 60 * 1000;
 
 function resolveMimeType(fileName: string): string {
   const lower = fileName.toLowerCase();
@@ -645,6 +647,7 @@ export struct ConnectionHome {
   @State private activeResumeSession: ResumeSession = emptyResumeSession();
   @State private resumeMessageDraft: string = '';
   @State private resumeMessageSending: boolean = false;
+  @State private resumeAwaitingReply: boolean = false;
   @State private pendingResumeMessage: string = '';
   @State private pendingResumeMessageTimestamp: string = '';
   @State private resumeComposerVisible: boolean = true;
@@ -683,6 +686,8 @@ export struct ConnectionHome {
   private resumeScrollAwayVersion: number = 0;
   private resumeJustSent: boolean = false;
   private resumeStopRequested: boolean = false;
+  private resumeAwaitingReplyBaselineId: string = '';
+  private resumeAwaitingReplySince: number = 0;
   private resumesCache: Map<string, ResumeItem[]> = new Map();
   private deviceType: string = deviceInfo.deviceType;
 
@@ -1443,6 +1448,7 @@ export struct ConnectionHome {
     this.clearActiveResumeSession();
     this.resumeMessageDraft = '';
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeRefreshToken++;
@@ -1467,6 +1473,7 @@ export struct ConnectionHome {
     this.clearActiveResumeSession();
     this.resumeMessageDraft = '';
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeRefreshToken++;
@@ -1572,6 +1579,7 @@ export struct ConnectionHome {
     this.clearActiveResumeSession();
     this.resumeMessageDraft = '';
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeRefreshToken++;
@@ -1828,6 +1836,7 @@ export struct ConnectionHome {
     this.clearActiveResumeSession();
     this.resumeMessageDraft = '';
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeRefreshToken++;
@@ -2303,6 +2312,7 @@ export struct ConnectionHome {
     this.openingResumeId = '';
     this.resumeStarting = false;
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.clearFieldFeedback();
     this.updateConnectionStatus(connection, 'needs_login');
     this.dialog = ConnectionDialog.RELOGIN;
@@ -2627,6 +2637,7 @@ export struct ConnectionHome {
     this.resumeStarting = false;
     this.resumeMessageDraft = '';
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeComposerVisible = true;
@@ -2957,6 +2968,10 @@ export struct ConnectionHome {
     this.resumeMessageDraft = '';
     this.resumeJustSent = true;
     this.resumeStopRequested = false;
+    this.resumeAwaitingReply = true;
+    this.resumeAwaitingReplySince = Date.now();
+    this.resumeAwaitingReplyBaselineId = this.activeResumeSession.turns.length > 0
+      ? this.activeResumeSession.turns[this.activeResumeSession.turns.length - 1].id : '';
     this.resumeRefreshToken++;
     this.resumeActionFeedback = '';
     this.startResumeWaitingIndicator();
@@ -2971,6 +2986,7 @@ export struct ConnectionHome {
       this.activeResumeSession = session;
       this.hasActiveResumeSession = true;
       this.updateConnectionStatus(connection, 'online');
+      this.syncResumeAwaitingReply(session);
       this.pendingResumeMessage = '';
       this.pendingResumeMessageTimestamp = '';
       if (session.turns.length === 0) {
@@ -3023,7 +3039,66 @@ export struct ConnectionHome {
   }
 
   private resumeHasInProgressTurn(session: ResumeSession): boolean {
-    return session.turns.some((turn: ResumeTurn) => turn.status === 'inProgress');
+    // 服务器下发 running/queued/in_progress 都算进行中；不能只认 inProgress，
+    // 否则长任务（如生成文件）会被误判为已完成、停止轮询与等待动画。
+    return session.turns.some((turn: ResumeTurn) => isActiveResumeTurnStatus(turn.status));
+  }
+
+  private resumeHasSettledAssistantReply(session: ResumeSession): boolean {
+    // 只检查“发送时最后一条回合”之后新增的回合，避免把历史回复误判为本次回复。
+    let startIndex: number = 0;
+    if (this.resumeAwaitingReplyBaselineId.length > 0) {
+      const baselineIndex: number = session.turns.findIndex(
+        (turn: ResumeTurn) => turn.id === this.resumeAwaitingReplyBaselineId);
+      startIndex = baselineIndex >= 0
+        ? baselineIndex + 1
+        : Math.max(0, session.turns.length - 1);
+    }
+
+    for (let index = startIndex; index < session.turns.length; index++) {
+      const turn: ResumeTurn = session.turns[index];
+      if (isActiveResumeTurnStatus(turn.status)) {
+        continue;
+      }
+      if (turn.items.some((item: ResumeContentItem) => item.role === 'assistant')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private clearResumeAwaitingReply(): void {
+    this.resumeAwaitingReply = false;
+    this.resumeAwaitingReplyBaselineId = '';
+    this.resumeAwaitingReplySince = 0;
+  }
+
+  private syncResumeAwaitingReply(session: ResumeSession): void {
+    if (!this.resumeAwaitingReply) {
+      return;
+    }
+
+    if (this.resumeStopRequested) {
+      this.clearResumeAwaitingReply();
+      return;
+    }
+
+    if (this.resumeHasInProgressTurn(session)) {
+      this.resumeAwaitingReplySince = Date.now();
+      return;
+    }
+
+    if (this.resumeHasSettledAssistantReply(session)) {
+      this.clearResumeAwaitingReply();
+      return;
+    }
+
+    // 兜底：长时间既无进行中回合、也无文字回复（例如只产出文件），避免永久等待。
+    if (this.resumeAwaitingReplySince > 0 &&
+      Date.now() - this.resumeAwaitingReplySince > RESUME_AWAIT_REPLY_TIMEOUT_MS) {
+      this.clearResumeAwaitingReply();
+    }
   }
 
   private resumeIsWaitingForResponse(): boolean {
@@ -3036,7 +3111,7 @@ export struct ConnectionHome {
     }
 
     return this.resumeMessageSending || this.pendingResumeMessage.length > 0 ||
-      this.resumeHasInProgressTurn(this.activeResumeSession);
+      this.resumeAwaitingReply || this.resumeHasInProgressTurn(this.activeResumeSession);
   }
 
   private startResumeWaitingIndicator(): void {
@@ -3084,7 +3159,7 @@ export struct ConnectionHome {
 
     const threadId = this.activeResumeSession.threadId;
     const refreshToken = this.resumeRefreshToken;
-    const hasInProgress = this.resumeHasInProgressTurn(this.activeResumeSession);
+    const hasInProgress = this.resumeHasInProgressTurn(this.activeResumeSession) || this.resumeAwaitingReply;
     const delay = hasInProgress ? 3000 : 10000;
     this.resumeAutoRefreshTimer = setTimeout(() => {
       this.resumeAutoRefreshTimer = -1;
@@ -3110,6 +3185,7 @@ export struct ConnectionHome {
 
   private stopResumeGeneration(): void {
     this.resumeMessageSending = false;
+    this.clearResumeAwaitingReply();
     this.pendingResumeMessage = '';
     this.pendingResumeMessageTimestamp = '';
     this.resumeRefreshToken++;
@@ -3139,7 +3215,8 @@ export struct ConnectionHome {
       this.resumeAutoRefreshTimer = setTimeout(() => {
         this.resumeAutoRefreshTimer = -1;
         this.refreshActiveResumeSilently(threadId, refreshToken);
-        if (this.hasActiveResumeSession && this.resumeHasInProgressTurn(this.activeResumeSession)) {
+        if (this.hasActiveResumeSession &&
+          (this.resumeHasInProgressTurn(this.activeResumeSession) || this.resumeAwaitingReply)) {
           poll();
         }
       }, interval);
@@ -3261,7 +3338,10 @@ export struct ConnectionHome {
       this.activeResumeSession = session;
       this.hasActiveResumeSession = true;
       this.updateConnectionStatus(connection, 'online');
-      if (!this.resumeHasInProgressTurn(session) && this.resumeActionFeedback.indexOf('仍在处理中') === 0) {
+      this.syncResumeAwaitingReply(session);
+      if (!this.resumeHasInProgressTurn(session) && !this.resumeAwaitingReply &&
+        (this.resumeActionFeedback.indexOf('仍在处理中') === 0 ||
+          this.resumeActionFeedback.indexOf('等待回复中') === 0)) {
         this.resumeActionFeedback = '';
         this.resumeMessageSending = false;
       }
@@ -3310,10 +3390,15 @@ export struct ConnectionHome {
       this.activeResumeSession = session;
       this.hasActiveResumeSession = true;
       this.updateConnectionStatus(connection, 'online');
-      if (!this.resumeHasInProgressTurn(session)) {
+      this.syncResumeAwaitingReply(session);
+      if (!this.resumeHasInProgressTurn(session) && !this.resumeAwaitingReply) {
         this.resumeMessageSending = false;
         this.pendingResumeMessage = '';
         this.pendingResumeMessageTimestamp = '';
+        if (this.resumeActionFeedback.indexOf('等待回复中') === 0 ||
+          this.resumeActionFeedback.indexOf('仍在处理中') === 0) {
+          this.resumeActionFeedback = '';
+        }
       }
       this.syncResumeWaitingIndicator();
       this.syncResumeAutoRefresh();

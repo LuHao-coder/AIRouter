@@ -88,19 +88,16 @@ node scripts/generate-signing-key.mjs
 
 ### 4. 初始化数据库
 
-数据库在网关首次启动时自动创建（`data/devices.db`），无需手动初始化。首次启动后生成一个注册码：
+数据库在网关首次启动时自动创建（`data/devices.db`），无需手动初始化。首次启动后随机生成一次性注册码：
 
 ```bash
 cd /opt/codex-router/codex-router-master
-node -e "
-const Database = require('better-sqlite3');
-const db = new Database('./data/devices.db');
-const crypto = require('crypto');
-const code = crypto.randomBytes(8).toString('hex');
-db.prepare('INSERT INTO registration_codes (code) VALUES (?)').run(code);
-console.log('新注册码:', code);
-"
+node scripts/generate-registration-code.mjs        # 生成 1 个一次性码
+node scripts/generate-registration-code.mjs 5      # 一次生成 5 个
 ```
+
+生成的注册码格式形如 `air-xxxxxxxxxxxxxxxx`。**每个注册码只能绑定一台设备**（激活即绑定、用后失效），
+所以每台设备各发一个；同一设备换机/重装再领新码即可，新旧码都归属同一 `deviceId`，文件照常访问。
 
 ### 5. 配置环境变量
 
@@ -185,9 +182,9 @@ cd /opt/codex-router/codex-router-master
 node -e "
 const Database = require('better-sqlite3');
 const db = new Database('./data/devices.db');
-const codes = db.prepare('SELECT code, used FROM registration_codes').all();
+const codes = db.prepare('SELECT code, used, uses, max_uses, used_by_device FROM registration_codes').all();
 console.log('注册码列表：');
-codes.forEach(c => console.log(c.code, c.used ? '(已使用)' : '(未使用)'));
+codes.forEach(c => console.log(c.code, c.used ? `(已使用 ${c.uses} 次, 绑定 ${c.used_by_device ?? '-'})` : '(未使用)'));
 "
 ```
 
@@ -200,18 +197,11 @@ codes.forEach(c => console.log(c.code, c.used ? '(已使用)' : '(未使用)'));
 
 ## 七、安全建议
 
-1. **修改默认注册码**
-   在数据库中删除默认注册码，生成新的：
+1. **每台设备单独发码**
+   注册码随机生成、一码一设备、用后失效，不要多台设备共用一个码：
    ```bash
    cd /opt/codex-router/codex-router-master
-   node -e "
-   const crypto = require('crypto');
-   const code = crypto.randomBytes(8).toString('hex');
-   const Database = require('better-sqlite3');
-   const db = new Database('./data/devices.db');
-   db.prepare('INSERT INTO registration_codes (code) VALUES (?)').run(code);
-   console.log('新注册码:', code);
-   "
+   node scripts/generate-registration-code.mjs
    ```
 
 2. **配置防火墙**

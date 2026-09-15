@@ -917,7 +917,7 @@ function normalizeStatus(value: string | ThreadStatus | undefined): string {
   return 'unknown';
 }
 
-function isActiveResumeTurnStatus(status: string): boolean {
+export function isActiveResumeTurnStatus(status: string): boolean {
   return status === 'inProgress' || status === 'running' || status === 'queued' || status === 'in_progress';
 }
 

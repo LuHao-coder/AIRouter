@@ -39,12 +39,20 @@ node gateway/server.mjs
 
 不使用账号密码。新设备流程：
 
-1. 管理员在数据库中生成一次性注册码（见 [docs/deploy.md](../docs/deploy.md)）。
+1. 管理员用脚本随机生成一次性注册码（见 [docs/deploy.md](../docs/deploy.md)）：
+   `node scripts/generate-registration-code.mjs`。
 2. App 调用 `POST /api/auth/register` 携带注册码与设备 Ed25519 公钥。
 3. Gateway 返回 `activationToken` 与 `challenge`，App 用 HUKS 私钥签名后调用 `POST /api/auth/activate`。
 4. 激活成功返回 `accessToken`/`refreshToken`，之后请求携带 `authorization: Bearer <accessToken>`。
 
-注册码仅限本设备注册一次；重新注册使用 `POST /api/auth/reregister`。
+注册码**一码一设备、一次性**：激活时即绑定到该设备，其他设备无法再使用。
+同一设备可再领新码（`POST /api/auth/reregister`），新旧码都指向同一 `deviceId`，因此文件不受影响。
+
+## 文件隔离
+
+AI 产物按设备隔离：会话工作目录被强制为 `<FILES_ROOT>/workspaces/<deviceId>`，
+`GET /api/files` 与 `GET /api/files/{name}/download` 只作用于本设备工作区。
+隔离维度是 **deviceId 而非注册码**——同一设备使用多个注册码，仍是同一个工作区。
 
 ## 常用接口
 

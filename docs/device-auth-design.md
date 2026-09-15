@@ -71,11 +71,13 @@ CREATE TABLE IF NOT EXISTS login_nonces (
   used INTEGER DEFAULT 0
 );
 
--- 注册码表
+-- 注册码表（管理员随机预生成；激活即绑定设备，一码一设备）
 CREATE TABLE IF NOT EXISTS registration_codes (
   code TEXT PRIMARY KEY,
   used INTEGER DEFAULT 0,
-  used_by_device TEXT DEFAULT NULL,
+  uses INTEGER DEFAULT 0,        -- 已使用次数
+  max_uses INTEGER DEFAULT -1,   -- 使用上限；一次性码为 1，-1 表示不限次（仍受设备绑定约束）
+  used_by_device TEXT DEFAULT NULL,  -- 绑定的 deviceId（激活时写入）
   used_at TEXT DEFAULT NULL
 );
 ```
@@ -506,9 +508,11 @@ class RateLimiter {
 
 ### 注册码安全
 
-- 注册码仅在首次注册和重新注册时使用
-- 使用后立即标记 `used=1`
-- 每个注册码只能激活一个设备
+- 管理员用 `scripts/generate-registration-code.mjs` 随机生成，默认**一次性**（`max_uses=1`）
+- 激活时通过原子 `UPDATE ... WHERE used_by_device IS NULL OR used_by_device = ?` 绑定到该设备
+- **一码一设备**：已被设备 A 绑定的码，设备 B 使用会被拒绝
+- 同一设备可再领新码（`reregister`），新旧码都归同一 `deviceId`，文件按设备共享
+- 注册码仅用于首次注册与重新注册，日常登录走 Ed25519 挑战-签名，不再用码
 
 ### device_name 安全
 

@@ -148,9 +148,28 @@ export function getRegistrationCode(code) {
   return getDb().prepare('SELECT * FROM registration_codes WHERE code = ?').get(code);
 }
 
-export function incrementRegistrationCodeUses(code, deviceId) {
+/** 管理员预生成注册码。maxUses=1 表示一次性码，激活即失效。 */
+export function createRegistrationCode(code, maxUses = 1) {
+  getDb()
+    .prepare('INSERT INTO registration_codes (code, max_uses) VALUES (?, ?)')
+    .run(code, maxUses);
+  return code;
+}
+
+/**
+ * 原子地把注册码绑定到设备：一码一设备、用满即失效。
+ * 仅当“未绑定或已绑定到同一设备”且“未超过使用上限”时才成功，返回 true/false。
+ */
+export function bindRegistrationCode(code, deviceId) {
   const now = new Date().toISOString();
-  return getDb().prepare('UPDATE registration_codes SET used = 1, uses = uses + 1, used_by_device = ?, used_at = ? WHERE code = ?').run(deviceId, now, code);
+  const result = getDb().prepare(`
+    UPDATE registration_codes
+       SET used = 1, uses = uses + 1, used_by_device = ?, used_at = ?
+     WHERE code = ?
+       AND (used_by_device IS NULL OR used_by_device = ?)
+       AND (max_uses < 0 OR uses < max_uses)
+  `).run(deviceId, now, code, deviceId);
+  return result.changes > 0;
 }
 
 export function cleanupExpiredNonces() {

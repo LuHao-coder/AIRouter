@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import {
   getRegistrationCode,
-  incrementRegistrationCodeUses,
+  bindRegistrationCode,
   saveActivationNonce,
   getActivationNonce,
   markActivationNonceUsed,
@@ -94,11 +94,16 @@ function verifyAccessToken(token) {
   }
 }
 
-function isRegistrationCodeValid(code) {
+/**
+ * 注册码有效性：存在、未用满、且未被其他设备绑定（一码一设备）。
+ * 传入 deviceId 时，已绑定到同一设备的码仍可用于该设备。
+ */
+function isRegistrationCodeValid(code, deviceId) {
   const row = getRegistrationCode(code);
   if (!row) return false;
-  if (row.max_uses < 0) return true;
-  return (row.uses || 0) < row.max_uses;
+  if (row.max_uses >= 0 && (row.uses || 0) >= row.max_uses) return false;
+  if (row.used_by_device && row.used_by_device !== deviceId) return false;
+  return true;
 }
 
 function createActivationChallenge(deviceId, publicKeyPem, registrationCode) {
@@ -133,10 +138,12 @@ function verifyActivation(deviceId, activationToken, signedChallenge) {
   }
   if (!valid) return { error: 'invalid_signature' };
 
-  markActivationNonceUsed(nonceRow.nonce);
+  // 激活成功的同时把注册码绑定到本设备（一码一设备、一次性）。绑定失败说明码被抢用。
   if (nonceRow.registration_code) {
-    incrementRegistrationCodeUses(nonceRow.registration_code, deviceId);
+    const bound = bindRegistrationCode(nonceRow.registration_code, deviceId);
+    if (!bound) return { error: 'registration_code_unavailable' };
   }
+  markActivationNonceUsed(nonceRow.nonce);
   upsertDevice(deviceId, publicKeyPem, '');
 
   const accessToken = signAccessToken(deviceId);
@@ -204,12 +211,14 @@ function refreshAccessToken(refreshToken) {
 }
 
 function reregisterDevice(deviceId, publicKeyPem, registrationCode, deviceName, mode) {
-  const row = getRegistrationCode(registrationCode);
-  if (!row) return { error: 'invalid_registration_code' };
-  if (row.max_uses >= 0 && (row.uses || 0) >= row.max_uses) return { error: 'invalid_registration_code' };
+  if (!isRegistrationCodeValid(registrationCode, deviceId)) {
+    return { error: 'invalid_registration_code' };
+  }
 
   if (mode === 'reset') {
-    incrementRegistrationCodeUses(registrationCode, deviceId);
+    if (!bindRegistrationCode(registrationCode, deviceId)) {
+      return { error: 'invalid_registration_code' };
+    }
     upsertDevice(deviceId, publicKeyPem, deviceName || '');
     deleteRefreshTokensForDevice(deviceId);
 

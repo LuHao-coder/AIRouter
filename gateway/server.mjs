@@ -155,8 +155,8 @@ function createGatewayHandler(options = {}) {
           return;
         }
 
-        if (!isRegistrationCodeValid(registrationCode)) {
-          errorResponse(response, 401, 'invalid_code', 'Registration code is invalid or already used');
+        if (!isRegistrationCodeValid(registrationCode, deviceId)) {
+          errorResponse(response, 401, 'invalid_code', 'Registration code is invalid, already used, or bound to another device');
           return;
         }
 
@@ -186,7 +186,8 @@ function createGatewayHandler(options = {}) {
         if (result.error) {
           const statusMap = {
             invalid_token: 400, device_mismatch: 403, token_used: 400,
-            token_expired: 400, no_public_key: 500, invalid_signature: 403
+            token_expired: 400, no_public_key: 500, invalid_signature: 403,
+            registration_code_unavailable: 409
           };
           errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
           return;
@@ -532,18 +533,13 @@ function createGatewayHandler(options = {}) {
       // ─── Files: List generated files (设备专属，只列本设备工作区) ───
       if (request.method === 'GET' && url.pathname === '/api/files') {
         const auth = requireAuth(request, response);
-        if (!auth) return trigger;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
+        if (!auth) return;
+        const workspace = deviceWorkspace(resolveFilesRoot(), auth.deviceId);
+        if (!workspace) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
         // AI 文件落在设备专属工作区 → 这里只列该设备自己的文件，实现严格隔离。
-        const workspace = deviceWorkspace(filesRoot, auth.deviceId);
-        if (!workspace) {
-          errorResponse(response, 400, 'invalid_device', 'Device id is required');
-          return;
-        }
         jsonResponse(response, 200, { items: listGeneratedFiles(workspace) });
         return;
       }
@@ -553,14 +549,9 @@ function createGatewayHandler(options = {}) {
       if (request.method === 'GET' && downloadMatch) {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = resolveFilesRoot();
+        const filesRoot = deviceWorkspace(resolveFilesRoot(), auth.deviceId);
         if (!filesRoot) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
-          return;
-        }
-        const filesRoot = deviceWorkspace(filesRoot, auth.deviceId);
-        if (!filesRoot) {
-          errorResponse(response, 400, 'invalid_device', 'Device id is required');
           return;
         }
 
@@ -570,21 +561,8 @@ function createGatewayHandler(options = {}) {
           return;
         }
 
-        const access = resolveDownloadAccess(filesRoot, downloadMatch[1], auth.deviceId);
-        if (access.code === 'not_yours') {
-          errorResponse(response, 403, 'file_not_allowed', 'File belongs to another device');
-          return;
-        }
-        if (access.code !== 'ok') {
-          errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
-          return;
-        }
-
         try {
           const content = fs.readFileSync(target);
-          if (access.claim) {
-            claimFile(filesRoot, downloadMatch[1], auth.deviceId);
-          }
           const type = mimeTypeForFile(target);
           response.writeHead(200, {
             'content-type': type,
