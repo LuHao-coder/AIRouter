@@ -575,18 +575,32 @@ function createGatewayHandler(options = {}) {
           return;
         }
 
+        let stats;
         try {
-          const content = fs.readFileSync(target);
-          const type = mimeTypeForFile(target);
-          response.writeHead(200, {
-            'content-type': type,
-            'content-length': content.length,
-            'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(target))}"`
-          });
-          response.end(content);
+          stats = fs.statSync(target);
         } catch (error) {
           errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
         }
+        if (!stats.isFile()) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+
+        // 流式发送，避免大文件整块读入内存。
+        response.writeHead(200, {
+          'content-type': mimeTypeForFile(target),
+          'content-length': stats.size,
+          'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(target))}"`
+        });
+        const stream = fs.createReadStream(target);
+        stream.on('error', () => {
+          response.destroy();
+        });
+        response.on('close', () => {
+          stream.destroy();
+        });
+        stream.pipe(response);
         return;
       }
 

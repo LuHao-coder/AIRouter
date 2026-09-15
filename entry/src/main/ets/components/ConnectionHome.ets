@@ -3034,7 +3034,8 @@ export struct ConnectionHome {
       this.pendingResumeMessageTimestamp = '';
       this.resumeComposerVisible = true;
       this.syncResumeWaitingIndicator();
-      this.scheduleTimeoutRetryRefresh();
+      // 交给统一的自动刷新循环（awaiting/inProgress 时 3s 轮询），不再另起一套重试定时器。
+      this.syncResumeAutoRefresh();
     }
   }
 
@@ -3194,34 +3195,6 @@ export struct ConnectionHome {
     this.stopResumeAutoRefresh();
     this.stopResumeWaitingIndicator();
     this.resumeActionFeedback = '已停止接收更新';
-  }
-
-  private scheduleTimeoutRetryRefresh(): void {
-    if (!this.hasActiveResumeSession) {
-      return;
-    }
-
-    const threadId = this.activeResumeSession.threadId;
-    const refreshToken = this.resumeRefreshToken;
-    let retries = 0;
-    const maxRetries = 20;
-    const interval = 3000;
-
-    const poll = () => {
-      if (retries >= maxRetries || refreshToken !== this.resumeRefreshToken) {
-        return;
-      }
-      retries++;
-      this.resumeAutoRefreshTimer = setTimeout(() => {
-        this.resumeAutoRefreshTimer = -1;
-        this.refreshActiveResumeSilently(threadId, refreshToken);
-        if (this.hasActiveResumeSession &&
-          (this.resumeHasInProgressTurn(this.activeResumeSession) || this.resumeAwaitingReply)) {
-          poll();
-        }
-      }, interval);
-    };
-    poll();
   }
 
   private showResumeCenterNotice(message: string): void {
