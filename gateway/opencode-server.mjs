@@ -8,6 +8,7 @@ const SERVER_READY_INTERVAL_MS = 500;
 const MAX_PART_TEXT_LENGTH = 6000;
 const MESSAGE_REFLECT_TIMEOUT_MS = 2000;
 const MESSAGE_REFLECT_INTERVAL_MS = 250;
+const SESSIONS_CACHE_TTL_MS = 3000;
 
 export function mapOpenCodeSessionToResumeItem(session) {
   const id = normalizeString(session?.id);
@@ -77,18 +78,36 @@ export class OpenCodeServerClient {
     this.now = options.now ?? Date.now;
     this.stderr = '';
     this.startupError = null;
+    this.sessionsCacheTtlMs = options.sessionsCacheTtlMs ?? SESSIONS_CACHE_TTL_MS;
+    this.sessionsCache = new Map();
   }
 
   async listResumes(options = {}) {
     const limit = options.limit ?? 20;
     const normalizedLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
-    const rows = await this.querySessions(normalizedLimit);
+    const rows = await this.loadSessionRows(normalizedLimit);
     const sessions = rows.map(mapOpenCodeDbSessionToSession);
     return sessions
       .filter((session) => !session?.time?.archived)
       .sort((left, right) => Number(right?.time?.updated || 0) - Number(left?.time?.updated || 0))
       .slice(0, normalizedLimit)
       .map(mapOpenCodeSessionToResumeItem);
+  }
+
+  /** 带短 TTL 缓存地读取会话列表，避免每次请求都 spawn `opencode db`。 */
+  async loadSessionRows(limit) {
+    const cached = this.sessionsCache.get(limit);
+    const now = this.now();
+    if (cached && now - cached.at < this.sessionsCacheTtlMs) {
+      return cached.rows;
+    }
+    const rows = await this.querySessions(limit);
+    this.sessionsCache.set(limit, { at: now, rows });
+    return rows;
+  }
+
+  invalidateSessionsCache() {
+    this.sessionsCache.clear();
   }
 
   async readResume(options = {}) {
@@ -112,6 +131,7 @@ export class OpenCodeServerClient {
       method: 'POST',
       body
     });
+    this.invalidateSessionsCache();
     return mapOpenCodeSessionToResumeSession(session, []);
   }
 
@@ -174,6 +194,7 @@ export class OpenCodeServerClient {
       'db',
       `update session set time_archived = ${now}, time_updated = ${now} where id = '${escapeSqlLiteral(threadId)}'`
     ]);
+    this.invalidateSessionsCache();
   }
 
   async renameResume(options = {}) {
@@ -189,11 +210,13 @@ export class OpenCodeServerClient {
         title: name
       }
     });
+    this.invalidateSessionsCache();
   }
 
   async deleteResume(options = {}) {
     const threadId = requireThreadId(options.threadId);
     await this.runCommand(['session', 'delete', threadId]);
+    this.invalidateSessionsCache();
   }
 
   async querySessions(limit) {

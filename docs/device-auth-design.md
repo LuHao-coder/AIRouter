@@ -375,7 +375,10 @@ App                                        Server
 - `reset`: 正常重置，直接替换公钥
 - `compromise`: 疑似泄露，需要管理员审批
 
-### 4.8 POST /api/auth/reregister-status
+### 4.8 POST /api/auth/reregister-status（**尚未实现，规划中**）
+
+> 当前 `reregister` 的 `mode: "compromise"` 只返回 `{ "status": "pending_approval" }`，
+> 尚无审批端点与后台，`reregister-status` 属于后续版本规划。当前实际可用的是 `mode: "reset"`。
 
 查询重新注册审批状态（仅 compromise 模式）。
 
@@ -397,7 +400,9 @@ App                                        Server
 - 存储: `/opt/codex-router/codex-router-master/keys/jwt-signing.pem`
 - 权限: 600
 - 轮换: 管理员运行 `node scripts/rotate-signing-key.mjs`
-- 轮换后旧 token 在过期前仍有效（验证时尝试当前 + 上一个密钥）
+  - 脚本会把旧密钥备份为 `jwt-signing.pem.prev` / `jwt-signing.pub.prev`
+  - 验证 AccessToken 时依次尝试当前公钥 + `.prev` 公钥，旧 token 在过期前（≤15 min）仍有效
+  - RefreshToken 存于数据库，轮换不影响；重启 `codex-router` 后生效
 
 ### AccessToken
 

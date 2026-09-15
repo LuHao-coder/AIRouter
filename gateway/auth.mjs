@@ -23,9 +23,21 @@ const PRIVATE_KEY_PATH =
   process.env.AI_ROUTER_SIGNING_KEY_PATH ?? './keys/jwt-signing.pem';
 const PUBLIC_KEY_PATH =
   process.env.AI_ROUTER_SIGNING_PUB_PATH ?? './keys/jwt-signing.pub';
+const PREVIOUS_PUBLIC_KEY_PATH =
+  process.env.AI_ROUTER_SIGNING_PUB_PREV_PATH ?? `${PUBLIC_KEY_PATH}.prev`;
+
+function readOptionalKey(path) {
+  try {
+    return fs.readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
 
 const privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
 const publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
+// 轮换前的上一个公钥：仅用于让轮换前签发的 AccessToken 在过期前仍可验证。
+const previousPublicKey = readOptionalKey(PREVIOUS_PUBLIC_KEY_PATH);
 
 const NONCE_TTL_MS = 2 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -79,12 +91,11 @@ function verifyAccessToken(token) {
     if (parts.length !== 3) return null;
     const [header, payload, sig] = parts;
     const data = `${header}.${payload}`;
-    const valid = crypto.verify(
-      null,
-      Buffer.from(data),
-      publicKey,
-      Buffer.from(sig, 'base64')
-    );
+    const signature = Buffer.from(sig, 'base64');
+    let valid = crypto.verify(null, Buffer.from(data), publicKey, signature);
+    if (!valid && previousPublicKey.length > 0) {
+      valid = crypto.verify(null, Buffer.from(data), previousPublicKey, signature);
+    }
     if (!valid) return null;
     const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
     if (decoded.exp && decoded.exp < Math.floor(Date.now() / 1000)) return null;

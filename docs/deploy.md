@@ -175,18 +175,29 @@ sudo systemctl start codex-router
 sudo systemctl status codex-router
 ```
 
-## 五、查看注册码
+## 五、管理脚本
 
 ```bash
 cd /opt/codex-router/codex-router-master
-node -e "
-const Database = require('better-sqlite3');
-const db = new Database('./data/devices.db');
-const codes = db.prepare('SELECT code, used, uses, max_uses, used_by_device FROM registration_codes').all();
-console.log('注册码列表：');
-codes.forEach(c => console.log(c.code, c.used ? `(已使用 ${c.uses} 次, 绑定 ${c.used_by_device ?? '-'})` : '(未使用)'));
-"
+
+# 生成随机一次性注册码
+node scripts/generate-registration-code.mjs        # 1 个
+node scripts/generate-registration-code.mjs 5      # 5 个
+
+# 查看注册码（使用次数 / 绑定设备）
+node scripts/list-registration-codes.mjs
+
+# 查看设备（状态 / 会话数 / 最近活跃）
+node scripts/list-devices.mjs
+
+# 吊销某台设备（清其 refresh token，需重新激活）
+node scripts/revoke-device.mjs <deviceId>
+
+# 轮换服务器签名密钥（旧密钥自动备份为 .prev，旧 AccessToken 过渡期仍有效）
+node scripts/rotate-signing-key.mjs && sudo systemctl restart codex-router
 ```
+
+> 均通过 `AI_ROUTER_DB_PATH`（默认 `./data/devices.db`）定位数据库。
 
 ## 六、App 配置
 

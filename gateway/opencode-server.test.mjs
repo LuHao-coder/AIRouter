@@ -277,6 +277,16 @@ describe('opencode server adapter', () => {
     assert.equal(commands[0][0], 'db');
     assert.match(commands[0][1], /from session/i);
     assert.deepEqual(commands[0].slice(-2), ['--format', 'json']);
+
+    // 短 TTL 内重复列举命中缓存，不再 spawn `opencode db`。
+    const again = await client.listResumes({ limit: 10 });
+    assert.deepEqual(again, items);
+    assert.equal(commands.length, 1);
+
+    // 显式失效后重新查询。
+    client.invalidateSessionsCache();
+    await client.listResumes({ limit: 10 });
+    assert.equal(commands.length, 2);
   });
 
   it('archives an OpenCode session through the database', async () => {
