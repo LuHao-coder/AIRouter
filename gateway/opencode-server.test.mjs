@@ -175,16 +175,17 @@ describe('opencode server adapter', () => {
     assert.equal(session.turns.length, 1);
   });
 
-  it('returns a snapshot without waiting for a long-running generation', async () => {
-    let messagePostStarted = false;
+  it('sends via prompt_async (no wait) and returns a snapshot immediately', async () => {
+    let promptAsyncUrl = '';
     const fetchImpl = async (url, options = {}) => {
       const target = String(url);
+      const path = target.split('?')[0];
       const method = options.method ?? 'GET';
-      if (method === 'POST' && target.includes('/message')) {
-        messagePostStarted = true;
-        return new Promise(() => {}); // 永不完成，模拟长任务
+      if (method === 'POST' && path.endsWith('/prompt_async')) {
+        promptAsyncUrl = target;
+        return fakeJsonResponse(undefined, 204);
       }
-      if (method === 'GET' && target.endsWith('/session/ses_long/message')) {
+      if (method === 'GET' && path.endsWith('/session/ses_long/message')) {
         return fakeJsonResponse([
           {
             info: { id: 'm_user', role: 'user', time: { created: 1 } },
@@ -192,7 +193,7 @@ describe('opencode server adapter', () => {
           }
         ]);
       }
-      if (method === 'GET' && target.endsWith('/session/ses_long')) {
+      if (method === 'GET' && path.endsWith('/session/ses_long')) {
         return fakeJsonResponse({ id: 'ses_long', title: 'long', directory: '/work', time: { created: 1, updated: 2 } });
       }
       return fakeJsonResponse({});
@@ -200,11 +201,16 @@ describe('opencode server adapter', () => {
     const client = new OpenCodeServerClient({ url: 'http://127.0.0.1:4096', fetchImpl });
 
     const started = Date.now();
-    const session = await client.sendResumeMessage({ threadId: 'ses_long', message: '帮我生成一份报告' });
+    const session = await client.sendResumeMessage({
+      threadId: 'ses_long',
+      message: '帮我生成一份报告',
+      directory: '/work/workspaces/dev1'
+    });
     const elapsed = Date.now() - started;
 
-    assert.ok(messagePostStarted, '消息应已投递');
-    assert.ok(elapsed < 1500, `应快速返回而不是等待生成，实际耗时 ${elapsed}ms`);
+    assert.match(promptAsyncUrl, /\/prompt_async\?/);
+    assert.match(promptAsyncUrl, /directory=%2Fwork%2Fworkspaces%2Fdev1/);
+    assert.ok(elapsed < 1500, `应即时返回，实际耗时 ${elapsed}ms`);
     assert.equal(session.threadId, 'ses_long');
     assert.equal(session.turns[0].items[0].text, '帮我生成一份报告');
   });
@@ -331,11 +337,11 @@ describe('opencode server adapter', () => {
   });
 });
 
-function fakeJsonResponse(body) {
+function fakeJsonResponse(body, status = 200) {
   return {
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify(body)
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => (body === undefined ? '' : JSON.stringify(body))
   };
 }
 

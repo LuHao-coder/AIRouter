@@ -6,8 +6,6 @@ const DEFAULT_OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
 const SERVER_READY_TIMEOUT_MS = 30000;
 const SERVER_READY_INTERVAL_MS = 500;
 const MAX_PART_TEXT_LENGTH = 6000;
-const MESSAGE_REFLECT_TIMEOUT_MS = 2000;
-const MESSAGE_REFLECT_INTERVAL_MS = 250;
 const SESSIONS_CACHE_TTL_MS = 3000;
 
 export function mapOpenCodeSessionToResumeItem(session) {
@@ -112,24 +110,24 @@ export class OpenCodeServerClient {
 
   async readResume(options = {}) {
     const threadId = requireThreadId(options.threadId);
-    const session = await this.request(`/session/${encodeURIComponent(threadId)}`);
-    const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`);
+    const directory = normalizeString(options.directory);
+    const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
+    const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`, { directory });
     return mapOpenCodeSessionToResumeSession(session, messages);
   }
 
   async startResume(options = {}) {
-    const cwd = normalizeString(options.cwd);
+    // directory 决定 opencode 的项目/工作目录：不同设备各自的工作区。
+    const directory = normalizeString(options.directory) || normalizeString(options.cwd);
     const body = {};
-    if (cwd.length > 0 && cwd !== '~') {
-      body.title = cwd;
-      body.metadata = {
-        cwd
-      };
+    if (directory.length > 0 && directory !== '~') {
+      body.title = directory;
     }
 
     const session = await this.request('/session', {
       method: 'POST',
-      body
+      body,
+      directory: directory !== '~' ? directory : ''
     });
     this.invalidateSessionsCache();
     return mapOpenCodeSessionToResumeSession(session, []);
@@ -142,12 +140,8 @@ export class OpenCodeServerClient {
       throw new Error('message is required');
     }
 
-    await this.ensureReady();
-
-    // 投递消息后立即返回当前快照，不等待整个生成过程（长任务可能耗时数分钟）。
-    // 注意：不设置短超时、不主动 abort，避免取消服务端生成；后续结果由客户端轮询 /resume 获取。
-    let dispatchError = null;
-    this.request(`/session/${encodeURIComponent(threadId)}/message`, {
+    // prompt_async：发送即返回 204，不等待生成完成；结果由客户端轮询 /resume 获取（不阻塞、不取消生成）。
+    await this.request(`/session/${encodeURIComponent(threadId)}/prompt_async`, {
       method: 'POST',
       body: {
         parts: [
@@ -156,35 +150,11 @@ export class OpenCodeServerClient {
             text: message
           }
         ]
-      }
-    }).catch((error) => {
-      dispatchError = error;
-      console.error(`[opencode] 消息投递失败: ${error instanceof Error ? error.message : error}`);
+      },
+      directory: normalizeString(options.directory)
     });
 
-    return this.awaitUserMessage(threadId, message, () => dispatchError);
-  }
-
-  /**
-   * 等待 opencode 登记刚发送的用户消息（最多 MESSAGE_REFLECT_TIMEOUT_MS），
-   * 让返回的快照已包含该消息；期间若投递失败则抛出该错误。
-   */
-  async awaitUserMessage(threadId, message, getDispatchError) {
-    const deadline = Date.now() + MESSAGE_REFLECT_TIMEOUT_MS;
-    let session = await this.readResume({ threadId });
-    while (!sessionHasUserMessage(session, message) && Date.now() < deadline) {
-      const dispatchError = getDispatchError();
-      if (dispatchError) {
-        throw dispatchError;
-      }
-      await wait(MESSAGE_REFLECT_INTERVAL_MS);
-      session = await this.readResume({ threadId });
-    }
-    const dispatchError = getDispatchError();
-    if (dispatchError && !sessionHasUserMessage(session, message)) {
-      throw dispatchError;
-    }
-    return session;
+    return this.readResume({ threadId, directory: options.directory });
   }
 
   async archiveResume(options = {}) {
@@ -208,7 +178,8 @@ export class OpenCodeServerClient {
       method: 'PATCH',
       body: {
         title: name
-      }
+      },
+      directory: normalizeString(options.directory)
     });
     this.invalidateSessionsCache();
   }
@@ -233,8 +204,16 @@ export class OpenCodeServerClient {
   async request(path, options = {}) {
     await this.ensureReady();
 
+    // opencode 按 `directory` 解析项目/工作目录；用它把不同设备隔离到各自工作区。
+    let target = `${this.url}${path}`;
+    if (normalizeString(options.directory).length > 0) {
+      const url = new URL(target);
+      url.searchParams.set('directory', normalizeString(options.directory));
+      target = url.toString();
+    }
+
     const timeoutMs = options.timeout ?? 300000;
-    const response = await this.fetchImpl(`${this.url}${path}`, {
+    const response = await this.fetchImpl(target, {
       method: options.method ?? 'GET',
       headers: options.body !== undefined ? {
         'content-type': 'application/json'
@@ -376,16 +355,6 @@ function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
   }
 
   return null;
-}
-
-function sessionHasUserMessage(session, message) {
-  const target = normalizeString(message);
-  if (target.length === 0 || !Array.isArray(session?.turns)) {
-    return false;
-  }
-  return session.turns.some((turn) =>
-    Array.isArray(turn?.items) &&
-    turn.items.some((item) => item?.role === 'user' && item?.text === target));
 }
 
 function resumeContent(id, role, kind, text, status) {

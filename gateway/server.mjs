@@ -408,7 +408,8 @@ function createGatewayHandler(options = {}) {
         }
 
         const cwd = workspace;
-        const session = await opencodeClient.startResume({ cwd });
+        // directory 让 opencode 把该会话的读写限制在设备工作区（文件隔离的关键）。
+        const session = await opencodeClient.startResume({ cwd, directory: workspace });
         if (auth.deviceId && session.threadId) {
           saveDeviceSession(session.threadId, auth.deviceId);
         }
@@ -427,7 +428,8 @@ function createGatewayHandler(options = {}) {
           return;
         }
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        const session = await opencodeClient.readResume({ threadId });
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+        const session = await opencodeClient.readResume({ threadId, directory });
         jsonResponse(response, 200, session);
         return;
       }
@@ -462,7 +464,8 @@ function createGatewayHandler(options = {}) {
           return;
         }
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        await opencodeClient.renameResume({ threadId, name });
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+        await opencodeClient.renameResume({ threadId, name, directory });
         jsonResponse(response, 200, { ok: true });
         return;
       }
@@ -497,7 +500,8 @@ function createGatewayHandler(options = {}) {
           return;
         }
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        const session = await opencodeClient.sendResumeMessage({ threadId, message });
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+        const session = await opencodeClient.sendResumeMessage({ threadId, message, directory });
         jsonResponse(response, 200, session);
         return;
       }
