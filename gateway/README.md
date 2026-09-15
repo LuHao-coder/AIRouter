@@ -61,6 +61,12 @@ AI 产物按设备隔离：会话工作目录被强制为 `<FILES_ROOT>/workspac
 `GET /resumes` 只列本设备会话；`resume/name/archive/delete/messages` 均校验归属，
 非归属方返回 404。gateway 重启后归属不丢。
 
+## 消息投递
+
+`POST /resumes/{id}/messages` **不等待生成完成**：网关投递消息后即返回当前快照
+（最多等待 ~2s 以确保消息已被登记），长任务的结果由客户端轮询 `POST /resumes/{id}/resume` 获取。
+网关不会因客户端超时而取消生成。
+
 ## 常用接口
 
 ```text

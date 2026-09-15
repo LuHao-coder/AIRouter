@@ -6,6 +6,8 @@ const DEFAULT_OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
 const SERVER_READY_TIMEOUT_MS = 30000;
 const SERVER_READY_INTERVAL_MS = 500;
 const MAX_PART_TEXT_LENGTH = 6000;
+const MESSAGE_REFLECT_TIMEOUT_MS = 2000;
+const MESSAGE_REFLECT_INTERVAL_MS = 250;
 
 export function mapOpenCodeSessionToResumeItem(session) {
   const id = normalizeString(session?.id);
@@ -120,7 +122,12 @@ export class OpenCodeServerClient {
       throw new Error('message is required');
     }
 
-    await this.request(`/session/${encodeURIComponent(threadId)}/message`, {
+    await this.ensureReady();
+
+    // 投递消息后立即返回当前快照，不等待整个生成过程（长任务可能耗时数分钟）。
+    // 注意：不设置短超时、不主动 abort，避免取消服务端生成；后续结果由客户端轮询 /resume 获取。
+    let dispatchError = null;
+    this.request(`/session/${encodeURIComponent(threadId)}/message`, {
       method: 'POST',
       body: {
         parts: [
@@ -130,10 +137,34 @@ export class OpenCodeServerClient {
           }
         ]
       }
+    }).catch((error) => {
+      dispatchError = error;
+      console.error(`[opencode] 消息投递失败: ${error instanceof Error ? error.message : error}`);
     });
-    return this.readResume({
-      threadId
-    });
+
+    return this.awaitUserMessage(threadId, message, () => dispatchError);
+  }
+
+  /**
+   * 等待 opencode 登记刚发送的用户消息（最多 MESSAGE_REFLECT_TIMEOUT_MS），
+   * 让返回的快照已包含该消息；期间若投递失败则抛出该错误。
+   */
+  async awaitUserMessage(threadId, message, getDispatchError) {
+    const deadline = Date.now() + MESSAGE_REFLECT_TIMEOUT_MS;
+    let session = await this.readResume({ threadId });
+    while (!sessionHasUserMessage(session, message) && Date.now() < deadline) {
+      const dispatchError = getDispatchError();
+      if (dispatchError) {
+        throw dispatchError;
+      }
+      await wait(MESSAGE_REFLECT_INTERVAL_MS);
+      session = await this.readResume({ threadId });
+    }
+    const dispatchError = getDispatchError();
+    if (dispatchError && !sessionHasUserMessage(session, message)) {
+      throw dispatchError;
+    }
+    return session;
   }
 
   async archiveResume(options = {}) {
@@ -308,7 +339,30 @@ function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
     return resumeContent(`${messageId}:${partId}`, role, 'message', part?.text, '');
   }
 
+  // 工具调用 / 文件产物也映射为内容项，让“生成文件/调用工具”这类长任务在客户端有进度可看。
+  if (type === 'tool') {
+    const toolName = normalizeString(part?.tool) || 'tool';
+    const status = normalizeString(part?.state?.status);
+    const text = status.length > 0 ? `${toolName} · ${status}` : toolName;
+    return resumeContent(`${messageId}:${partId}`, 'tool', 'tool', text, status);
+  }
+
+  if (type === 'file') {
+    const filename = normalizeString(part?.filename) || normalizeString(part?.path) || 'file';
+    return resumeContent(`${messageId}:${partId}`, 'tool', 'file', filename, '');
+  }
+
   return null;
+}
+
+function sessionHasUserMessage(session, message) {
+  const target = normalizeString(message);
+  if (target.length === 0 || !Array.isArray(session?.turns)) {
+    return false;
+  }
+  return session.turns.some((turn) =>
+    Array.isArray(turn?.items) &&
+    turn.items.some((item) => item?.role === 'user' && item?.text === target));
 }
 
 function resumeContent(id, role, kind, text, status) {
