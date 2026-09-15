@@ -50,9 +50,16 @@ node gateway/server.mjs
 
 ## 文件隔离
 
-AI 产物按设备隔离：会话工作目录被强制为 `<FILES_ROOT>/workspaces/<deviceId>`，
+AI 产物按设备隔离：会话工作目录被强制为 `<FILES_ROOT>/workspaces/<sha256(deviceId)>`，
 `GET /api/files` 与 `GET /api/files/{name}/download` 只作用于本设备工作区。
 隔离维度是 **deviceId 而非注册码**——同一设备使用多个注册码，仍是同一个工作区。
+目录名用 deviceId 的哈希（而非原字符串），杜绝不同 deviceId 归一化后碰撞到同一目录。
+
+## 会话归属
+
+会话归属持久化在 SQLite `device_sessions(thread_id, device_id)`：
+`GET /resumes` 只列本设备会话；`resume/name/archive/delete/messages` 均校验归属，
+非归属方返回 404。gateway 重启后归属不丢。
 
 ## 常用接口
 

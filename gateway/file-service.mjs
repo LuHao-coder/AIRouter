@@ -1,4 +1,5 @@
 import { readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 const ALLOWED_EXTENSIONS = new Set(['.pptx', '.docx', '.xlsx', '.pdf', '.md', '.txt', '.zip']);
@@ -8,15 +9,15 @@ export function resolveFilesRoot(env = process.env) {
 }
 
 /**
- * 返回该设备的专属工作目录（FILES_ROOT/workspaces/<deviceId>）。
- * 目录不存在时返回 null。文件隔离按 deviceId：同一设备无论用哪个注册码激活，
- * 都落在同一个工作区；其他设备无法访问。
+ * 返回该设备的专属工作目录（FILES_ROOT/workspaces/<sha256(deviceId) 前 32 位>）。
+ * 目录名用哈希而非原始 deviceId，杜绝不同 deviceId 通过字符替换归一化后碰撞到同一目录
+ * （例如 `a.b` 与 `a_b`），从而避免跨设备文件访问。目录不存在时返回 null。
  */
 export function deviceWorkspace(root, deviceId) {
   if (!root || !deviceId) {
     return null;
   }
-  const safeId = String(deviceId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  const safeId = createHash('sha256').update(String(deviceId)).digest('hex').slice(0, 32);
   return path.join(root, 'workspaces', safeId);
 }
 

@@ -55,6 +55,12 @@ function initDb() {
       used_by_device TEXT DEFAULT NULL,
       used_at TEXT DEFAULT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS device_sessions (
+      thread_id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      created_at TEXT
+    );
   `);
 
   try {
@@ -170,6 +176,31 @@ export function bindRegistrationCode(code, deviceId) {
        AND (max_uses < 0 OR uses < max_uses)
   `).run(deviceId, now, code, deviceId);
   return result.changes > 0;
+}
+
+export function saveDeviceSession(threadId, deviceId) {
+  const now = new Date().toISOString();
+  return getDb().prepare(`
+    INSERT INTO device_sessions (thread_id, device_id, created_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(thread_id) DO UPDATE SET device_id = excluded.device_id
+  `).run(threadId, deviceId, now);
+}
+
+export function getDeviceSessionOwner(threadId) {
+  const row = getDb().prepare('SELECT device_id FROM device_sessions WHERE thread_id = ?').get(threadId);
+  return row ? row.device_id : null;
+}
+
+export function listDeviceSessions(deviceId) {
+  return getDb()
+    .prepare('SELECT thread_id FROM device_sessions WHERE device_id = ?')
+    .all(deviceId)
+    .map((row) => row.thread_id);
+}
+
+export function deleteDeviceSession(threadId) {
+  return getDb().prepare('DELETE FROM device_sessions WHERE thread_id = ?').run(threadId);
 }
 
 export function cleanupExpiredNonces() {

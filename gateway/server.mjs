@@ -32,6 +32,12 @@ import {
   resolveDownloadPath,
   isAllowedFile,
 } from './file-service.mjs';
+import {
+  saveDeviceSession,
+  getDeviceSessionOwner,
+  listDeviceSessions,
+  deleteDeviceSession,
+} from './db.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 8443;
@@ -112,10 +118,21 @@ function requireAuth(request, response) {
   return { deviceId: payload.sub };
 }
 
+/**
+ * 会话归属校验：只有创建该会话的设备才能访问。非归属方返回 404（不泄漏会话是否存在）。
+ */
+function requireThreadOwnership(response, deviceId, threadId) {
+  const owner = getDeviceSessionOwner(threadId);
+  if (!owner || owner !== deviceId) {
+    errorResponse(response, 404, 'session_not_found', 'Session not found');
+    return false;
+  }
+  return true;
+}
+
 function createGatewayHandler(options = {}) {
   const tasks = new Map();
   const opencodeClient = options.opencodeClient ?? new OpenCodeServerClient();
-  const deviceSessions = new Map();
 
   setInterval(() => {
     cleanupExpiredNonces();
@@ -360,7 +377,8 @@ function createGatewayHandler(options = {}) {
 
         const limit = Number(url.searchParams.get('limit') ?? '20');
         const allItems = await opencodeClient.listResumes({ limit: 1000 });
-        const deviceThreadIds = deviceSessions.get(auth.deviceId) ?? new Set();
+        // 归属持久化在 SQLite，gateway 重启后依然只列表本设备会话。
+        const deviceThreadIds = new Set(listDeviceSessions(auth.deviceId));
         const items = allItems
           .filter((item) => deviceThreadIds.has(item.id))
           .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20);
@@ -394,10 +412,7 @@ function createGatewayHandler(options = {}) {
         const cwd = workspace;
         const session = await opencodeClient.startResume({ cwd });
         if (auth.deviceId && session.threadId) {
-          if (!deviceSessions.has(auth.deviceId)) {
-            deviceSessions.set(auth.deviceId, new Set());
-          }
-          deviceSessions.get(auth.deviceId).add(session.threadId);
+          saveDeviceSession(session.threadId, auth.deviceId);
         }
         jsonResponse(response, 200, session);
         return;
@@ -413,6 +428,7 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 400, 'invalid_request', 'Thread id is required');
           return;
         }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const session = await opencodeClient.readResume({ threadId });
         jsonResponse(response, 200, session);
         return;
@@ -428,11 +444,9 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 400, 'invalid_request', 'Thread id is required');
           return;
         }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         await opencodeClient.archiveResume({ threadId });
-        if (auth.deviceId) {
-          const deviceThreadIds = deviceSessions.get(auth.deviceId);
-          if (deviceThreadIds) deviceThreadIds.delete(threadId);
-        }
+        deleteDeviceSession(threadId);
         jsonResponse(response, 200, { ok: true });
         return;
       }
@@ -449,6 +463,7 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 400, 'invalid_request', 'Thread id and name are required');
           return;
         }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         await opencodeClient.renameResume({ threadId, name });
         jsonResponse(response, 200, { ok: true });
         return;
@@ -464,11 +479,9 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 400, 'invalid_request', 'Thread id is required');
           return;
         }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         await opencodeClient.deleteResume({ threadId });
-        if (auth.deviceId) {
-          const deviceThreadIds = deviceSessions.get(auth.deviceId);
-          if (deviceThreadIds) deviceThreadIds.delete(threadId);
-        }
+        deleteDeviceSession(threadId);
         jsonResponse(response, 200, { ok: true });
         return;
       }
@@ -485,6 +498,7 @@ function createGatewayHandler(options = {}) {
           errorResponse(response, 400, 'invalid_request', 'Thread id and message are required');
           return;
         }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const session = await opencodeClient.sendResumeMessage({ threadId, message });
         jsonResponse(response, 200, session);
         return;

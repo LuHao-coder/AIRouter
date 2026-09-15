@@ -75,10 +75,17 @@ CREATE TABLE IF NOT EXISTS login_nonces (
 CREATE TABLE IF NOT EXISTS registration_codes (
   code TEXT PRIMARY KEY,
   used INTEGER DEFAULT 0,
-  uses INTEGER DEFAULT 0,        -- 已使用次数
-  max_uses INTEGER DEFAULT -1,   -- 使用上限；一次性码为 1，-1 表示不限次（仍受设备绑定约束）
-  used_by_device TEXT DEFAULT NULL,  -- 绑定的 deviceId（激活时写入）
+  uses INTEGER DEFAULT 0,
+  max_uses INTEGER DEFAULT -1,
+  used_by_device TEXT DEFAULT NULL,
   used_at TEXT DEFAULT NULL
+);
+
+-- 会话归属表：记录每个 OpenCode 会话属于哪台设备（持久化，gateway 重启不丢）
+CREATE TABLE IF NOT EXISTS device_sessions (
+  thread_id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  created_at TEXT
 );
 ```
 

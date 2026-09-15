@@ -24,7 +24,7 @@ process.env.AI_ROUTER_SIGNING_PUB_PATH = path.join(tmp, 'jwt-signing.pub');
 process.env.AI_ROUTER_DB_PATH = path.join(tmp, 'test.db');
 
 const { createGatewayServer } = await import('./server.mjs');
-const { getDb } = await import('./db.mjs');
+const { getDb, saveDeviceSession } = await import('./db.mjs');
 
 let registrationCodeSeq = 0;
 /** 随机生成一次性注册码并入库；激活时会绑定到使用它的设备（一码一设备）。 */
@@ -370,8 +370,8 @@ describe('gateway', () => {
     process.env.FILES_ROOT = filesRoot;
     const opencodeClient = {
       async startResume({ cwd }) {
-        // cwd 现在强制为设备专属工作区目录（由服务器注入），任何该设备目录皆可。
-        assert.match(cwd, /workspaces[/\\]dev-resumes$/);
+        // cwd 被强制为该设备的专属工作区（目录名是 deviceId 的哈希）。
+        assert.equal(cwd, deviceWorkspace(filesRoot, 'dev-resumes'));
         return { threadId: 'ses_router', title: 'Port router to OpenCode', cwd, status: 'idle' };
       },
       async listResumes({ limit }) {
@@ -427,6 +427,114 @@ describe('gateway', () => {
     }
   });
 
+  it('keeps session ownership across a gateway restart', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-owner-persist-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        return { threadId: 'ses_persist', title: 'persist', cwd, status: 'idle' };
+      },
+      async listResumes() {
+        return [
+          { id: 'ses_persist', title: 'mine', subtitle: '', status: 'idle', updatedAt: '2026-07-06T12:00:00.000Z' },
+          { id: 'ses_someone', title: 'other', subtitle: '', status: 'idle', updatedAt: '2026-07-06T12:00:00.000Z' }
+        ];
+      }
+    };
+
+    let device;
+    try {
+      // 第一个 gateway 实例：设备创建会话。
+      await withServer(async (baseUrl) => {
+        device = await activateDevice(baseUrl, { deviceId: 'dev-owner-persist' });
+        const created = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${device.accessToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ cwd: '~' })
+        });
+        assert.equal(created.status, 200);
+      }, { opencodeClient });
+
+      // 模拟 gateway 重启（新实例、同一数据库）：归属依旧，只列本设备会话。
+      await withServer(async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          headers: { authorization: `Bearer ${device.accessToken}` }
+        });
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.deepEqual(body.items.map((item) => item.id), ['ses_persist']);
+      }, { opencodeClient });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks a device from accessing another device session', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-owner-guard-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        return { threadId: 'ses_guarded', title: 'guarded', cwd, status: 'idle' };
+      },
+      async readResume({ threadId }) {
+        return { threadId, title: 'guarded', cwd: '', status: 'idle', turns: [] };
+      },
+      async deleteResume() {},
+      async sendResumeMessage({ threadId }) {
+        return { threadId, title: 'guarded', cwd: '', status: 'idle', turns: [] };
+      }
+    };
+
+    try {
+      await withServer(async (baseUrl) => {
+        const owner = await activateDevice(baseUrl, { deviceId: 'dev-guard-owner' });
+        const intruder = await activateDevice(baseUrl, { deviceId: 'dev-guard-intruder' });
+
+        const created = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${owner.accessToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ cwd: '~' })
+        });
+        assert.equal(created.status, 200);
+
+        const ownerAuth = { authorization: `Bearer ${owner.accessToken}` };
+        const intruderAuth = { authorization: `Bearer ${intruder.accessToken}` };
+
+        // 归属者可以打开；非归属者一律 404（不泄漏会话存在）。
+        assert.equal((await fetch(`${baseUrl}/api/opencode/resumes/ses_guarded/resume`, {
+          method: 'POST', headers: ownerAuth
+        })).status, 200);
+        assert.equal((await fetch(`${baseUrl}/api/opencode/resumes/ses_guarded/resume`, {
+          method: 'POST', headers: intruderAuth
+        })).status, 404);
+
+        assert.equal((await fetch(`${baseUrl}/api/opencode/resumes/ses_guarded`, {
+          method: 'DELETE', headers: intruderAuth
+        })).status, 404);
+
+        assert.equal((await fetch(`${baseUrl}/api/opencode/resumes/ses_guarded/messages`, {
+          method: 'POST',
+          headers: { ...intruderAuth, 'content-type': 'application/json' },
+          body: JSON.stringify({ message: 'hi' })
+        })).status, 404);
+      }, { opencodeClient });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sends a message to an OpenCode resume session', async () => {
     const opencodeClient = {
       async sendResumeMessage({ threadId, message }) {
@@ -458,6 +566,8 @@ describe('gateway', () => {
 
     await withServer(async (baseUrl) => {
       const device = await activateDevice(baseUrl, { deviceId: 'dev-message' });
+      // 该会话归属本设备（正常流程由创建会话时写入）。
+      saveDeviceSession('ses_router', 'dev-message');
       const response = await fetch(`${baseUrl}/api/opencode/resumes/ses_router/messages`, {
         method: 'POST',
         headers: {
@@ -716,5 +826,18 @@ describe('files', () => {
       if (originalRoot !== undefined) process.env.FILES_ROOT = originalRoot;
       if (originalWorkdir !== undefined) process.env.OPENCODE_WORKDIR = originalWorkdir;
     }
+  });
+
+  it('maps device ids to collision-free workspaces', () => {
+    const root = '/srv/files';
+    // 确定性：同一 deviceId 始终同一目录。
+    assert.equal(deviceWorkspace(root, 'device-x'), deviceWorkspace(root, 'device-x'));
+    // 旧的字符替换方案会让 `a.b`/`a_b`、`a/b`/`a_b` 撞到同一目录，现用哈希区分。
+    assert.notEqual(deviceWorkspace(root, 'a.b'), deviceWorkspace(root, 'a_b'));
+    assert.notEqual(deviceWorkspace(root, 'a/b'), deviceWorkspace(root, 'a_b'));
+    assert.notEqual(deviceWorkspace(root, 'a b'), deviceWorkspace(root, 'a_b'));
+    // 非法输入返回 null。
+    assert.equal(deviceWorkspace('', 'device-x'), null);
+    assert.equal(deviceWorkspace(root, ''), null);
   });
 });
