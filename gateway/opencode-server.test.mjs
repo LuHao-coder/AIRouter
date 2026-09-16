@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { EventEmitter } from 'node:events';
 import {
   OpenCodeServerClient,
+  extractFilePathsFromDiff,
   extractFilePathsFromMessages,
   mapOpenCodeMessagesToResumeTurns,
   mapOpenCodeSessionToResumeItem,
@@ -140,7 +141,7 @@ describe('opencode server adapter', () => {
     ]);
   });
 
-  it('extracts produced file paths from message parts (ignores read/other)', () => {
+  it('extracts produced file paths from message parts (write/edit/file, ignores read)', () => {
     const files = extractFilePathsFromMessages([
       {
         parts: [
@@ -154,6 +155,28 @@ describe('opencode server adapter', () => {
     ]);
 
     assert.deepEqual(files.sort(), ['/root/deck.docx', '/root/report.pptx', 'notes.txt']);
+  });
+
+  it('extracts bash-created file paths from shell tool command/output', () => {
+    const files = extractFilePathsFromMessages([
+      {
+        parts: [
+          { type: 'tool', tool: 'bash', state: { input: { command: 'python gen.py -o /root/报告.docx' }, output: 'saved to /root/总结.md' } }
+        ]
+      }
+    ]);
+
+    assert.deepEqual(files.sort(), ['/root/总结.md', '/root/报告.docx']);
+  });
+
+  it('extracts file paths from a session diff payload', () => {
+    const files = extractFilePathsFromDiff([
+      { file: '/root/a.docx', additions: 3 },
+      { path: 'sub/b.pptx' },
+      { filename: 'c.md' }
+    ]);
+
+    assert.deepEqual(files.sort(), ['/root/a.docx', 'c.md', 'sub/b.pptx']);
   });
 
   it('combines an OpenCode session and messages into a resume session', () => {

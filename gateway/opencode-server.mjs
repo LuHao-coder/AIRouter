@@ -64,9 +64,20 @@ const FILE_PRODUCING_TOOLS = new Set([
   'write', 'edit', 'patch', 'apply_patch', 'multiedit', 'create', 'write_file', 'str_replace_editor'
 ]);
 
+// shell 类工具：需从命令/输出里扫文件路径（bash 直接写文件不会被上面识别）。
+const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
+
+// 会被登记的产出文件扩展名（与 file-service 白名单一致）。
+const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
+
 /**
  * 从会话消息 parts 中提取“产出/改动的文件路径”。
  * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
+ *
+ * 覆盖：
+ * - `file` part 的 filename/path
+ * - 写文件类工具（write/edit/patch…）input/metadata 中含 file/path 的字段
+ * - bash/shell 工具的命令与输出中以白名单扩展名结尾的路径（覆盖 `cat > x.docx`、脚本产出等）
  */
 export function extractFilePathsFromMessages(messages) {
   if (!Array.isArray(messages)) {
@@ -93,22 +104,96 @@ export function extractFilePathsFromMessages(messages) {
       if (type !== 'tool') {
         continue;
       }
+
       const toolName = normalizeString(part?.tool).toLowerCase();
-      if (!FILE_PRODUCING_TOOLS.has(toolName)) {
-        continue;
+      const state = part?.state ?? {};
+
+      if (FILE_PRODUCING_TOOLS.has(toolName)) {
+        // 不同工具/版本字段名不一（filePath / file_path / path / filename …）。
+        for (const value of pickPathLikeValues(state.input)) {
+          add(value);
+        }
+        for (const value of pickPathLikeValues(state.metadata)) {
+          add(value);
+        }
       }
-      // 不同工具/版本字段名不一（filePath / file_path / path / filename …），
-      // 用“键名含 file/path 的字符串值”兜底收集。
-      for (const value of pickPathLikeValues(part?.state?.input)) {
-        add(value);
-      }
-      for (const value of pickPathLikeValues(part?.state?.metadata)) {
-        add(value);
+
+      // shell 类工具：从命令/输出里扫出以白名单扩展名结尾的路径（覆盖 bash/脚本产物）。
+      if (SHELL_TOOLS.has(toolName)) {
+        for (const value of collectStringValues(state.input)) {
+          for (const token of extractPathTokens(value)) {
+            add(token);
+          }
+        }
+        for (const value of collectStringValues(state.metadata)) {
+          for (const token of extractPathTokens(value)) {
+            add(token);
+          }
+        }
+        for (const token of extractPathTokens(normalizeString(state.output))) {
+          add(token);
+        }
       }
     }
   }
 
   return Array.from(paths);
+}
+
+/** 从 `/session/:id/diff` 的返回中提取文件路径（字段名未知，做通用兜底）。 */
+export function extractFilePathsFromDiff(diff) {
+  if (!Array.isArray(diff)) {
+    return [];
+  }
+  const paths = new Set();
+  const add = (value) => {
+    const path = normalizeString(value);
+    if (path.length > 0) {
+      paths.add(path);
+    }
+  };
+  for (const entry of diff) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    add(entry.file);
+    add(entry.path);
+    add(entry.filename);
+    for (const value of pickPathLikeValues(entry)) {
+      add(value);
+    }
+    for (const value of collectStringValues(entry)) {
+      for (const token of extractPathTokens(value)) {
+        add(token);
+      }
+    }
+  }
+  return Array.from(paths);
+}
+
+/** 收集对象中所有字符串值（一层）。 */
+function collectStringValues(source) {
+  if (!source || typeof source !== 'object') {
+    return [];
+  }
+  return Object.values(source).filter((value) => typeof value === 'string');
+}
+
+/** 从任意文本里提取“以白名单扩展名结尾”的路径 token。 */
+function extractPathTokens(text) {
+  const value = normalizeString(text);
+  if (value.length === 0) {
+    return [];
+  }
+  const tokens = value.split(/[\s"'`|<>,;()[\]{}]+/);
+  const results = [];
+  for (const raw of tokens) {
+    const token = raw.replace(/[.,:;]+$/, '');
+    if (token.length > 0 && token.length < 1024 && ALLOWED_FILE_EXT_RE.test(token)) {
+      results.push(token);
+    }
+  }
+  return results;
 }
 
 function pickPathLikeValues(source) {
@@ -178,10 +263,25 @@ export class OpenCodeServerClient {
     const directory = normalizeString(options.directory);
     const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
     const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`, { directory });
+    const messageFiles = extractFilePathsFromMessages(messages);
+    // 会话 diff 能覆盖 bash/脚本产出的文件；失败时静默降级为仅用消息解析结果。
+    const diffFiles = await this.readSessionDiff(threadId, directory);
     return {
       ...mapOpenCodeSessionToResumeSession(session, messages),
-      files: extractFilePathsFromMessages(messages)
+      files: Array.from(new Set([...messageFiles, ...diffFiles]))
     };
+  }
+
+  async readSessionDiff(threadId, directory) {
+    try {
+      const diff = await this.request(`/session/${encodeURIComponent(threadId)}/diff`, {
+        directory,
+        timeout: 5000
+      });
+      return extractFilePathsFromDiff(diff);
+    } catch (error) {
+      return [];
+    }
   }
 
   async startResume(options = {}) {
