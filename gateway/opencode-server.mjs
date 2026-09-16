@@ -97,19 +97,31 @@ export function extractFilePathsFromMessages(messages) {
       if (!FILE_PRODUCING_TOOLS.has(toolName)) {
         continue;
       }
-      const input = part?.state?.input ?? {};
-      const metadata = part?.state?.metadata ?? {};
-      add(input.filePath);
-      add(input.file_path);
-      add(input.path);
-      add(input.filename);
-      add(metadata.filepath);
-      add(metadata.filePath);
-      add(metadata.path);
+      // 不同工具/版本字段名不一（filePath / file_path / path / filename …），
+      // 用“键名含 file/path 的字符串值”兜底收集。
+      for (const value of pickPathLikeValues(part?.state?.input)) {
+        add(value);
+      }
+      for (const value of pickPathLikeValues(part?.state?.metadata)) {
+        add(value);
+      }
     }
   }
 
   return Array.from(paths);
+}
+
+function pickPathLikeValues(source) {
+  if (!source || typeof source !== 'object') {
+    return [];
+  }
+  const values = [];
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string' && value.length > 0 && value.length < 1024 && /file|path/i.test(key)) {
+      values.push(value);
+    }
+  }
+  return values;
 }
 
 export class OpenCodeServerClient {
