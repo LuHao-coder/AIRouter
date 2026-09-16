@@ -274,6 +274,14 @@ export function listSessionFiles(deviceId) {
   `).all(deviceId);
 }
 
+/** 某设备的全部文件登记记录（含相对路径 name 与绝对路径 path）。 */
+export function listSessionFileRecords(deviceId) {
+  return getDb().prepare(`
+    SELECT path, name FROM session_files
+     WHERE device_id = ?
+  `).all(deviceId);
+}
+
 /** 精确查某设备名下、指定 name 的文件记录（用于下载校验，杜绝越权/穿越）。 */
 export function findSessionFile(deviceId, name) {
   return getDb().prepare(`

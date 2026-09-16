@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, after } from 'node:test';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -660,6 +660,49 @@ describe('files', () => {
         assert.equal(blob.size, 15);
         assert.equal(await blob.text(), 'fake-pptx-bytes');
         assert.match(downloadResponse.headers.get('content-disposition'), /report\.pptx/);
+      }, { opencodeClient });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('flattens nested file paths to a safe basename for listing and download', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-nested-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    const nestedDir = path.join(filesRoot, 'workspaces', 'abc');
+    mkdirSync(nestedDir, { recursive: true });
+    const nestedPath = path.join(nestedDir, 'a.md');
+    writeFileSync(nestedPath, '# hi');
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        return { threadId: 'ses_nested', title: 't', cwd, status: 'idle', turns: [] };
+      },
+      async readResume({ threadId }) {
+        return { threadId, title: 't', cwd: '', status: 'idle', turns: [], files: [nestedPath] };
+      }
+    };
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-files-nested' });
+        const auth = { authorization: `Bearer ${device.accessToken}` };
+        await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ cwd: '~' })
+        });
+        await fetch(`${baseUrl}/api/opencode/resumes/ses_nested/resume`, { method: 'POST', headers: auth });
+
+        // 列表对外只给扁平文件名（不含 `/`），避免客户端保存报“文件名不合法”。
+        const list = await (await fetch(`${baseUrl}/api/files`, { headers: auth })).json();
+        assert.deepEqual(list.items.map((item) => item.name), ['a.md']);
+
+        const download = await fetch(`${baseUrl}/api/files/a.md/download`, { headers: auth });
+        assert.equal(download.status, 200);
+        assert.equal(await download.text(), '# hi');
       }, { opencodeClient });
     } finally {
       if (originalRoot === undefined) {

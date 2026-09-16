@@ -36,8 +36,7 @@ import {
   listDeviceSessions,
   deleteDeviceSession,
   upsertSessionFile,
-  listSessionFiles,
-  findSessionFile,
+  listSessionFileRecords,
 } from './db.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
@@ -602,8 +601,14 @@ function createGatewayHandler(options = {}) {
           return;
         }
         const root = path.resolve(filesRoot);
+        // 对外只暴露扁平文件名（basename），避免带 `/` 的文件名在客户端保存时报“文件名不合法”。
+        const seen = new Set();
         const items = [];
-        for (const row of listSessionFiles(auth.deviceId)) {
+        for (const row of listSessionFileRecords(auth.deviceId)) {
+          const displayName = path.basename(row.name);
+          if (displayName.length === 0 || seen.has(displayName)) {
+            continue;
+          }
           const absolute = path.resolve(root, row.name);
           if (absolute !== root && !absolute.startsWith(root + path.sep)) {
             continue;
@@ -620,7 +625,8 @@ function createGatewayHandler(options = {}) {
           if (!stats.isFile()) {
             continue;
           }
-          items.push({ name: row.name, size: stats.size, modifiedAt: stats.mtime.toISOString() });
+          seen.add(displayName);
+          items.push({ name: displayName, size: stats.size, modifiedAt: stats.mtime.toISOString() });
         }
         items.sort((left, right) => left.name.localeCompare(right.name));
         jsonResponse(response, 200, { items });
@@ -645,7 +651,10 @@ function createGatewayHandler(options = {}) {
           requestedName = downloadMatch[1];
         }
 
-        const record = findSessionFile(auth.deviceId, requestedName);
+        // 支持按“完整相对路径”或“扁平文件名(basename)”回查本设备登记记录。
+        const records = listSessionFileRecords(auth.deviceId);
+        const record = records.find((row) => row.name === requestedName) ||
+          records.find((row) => path.basename(row.name) === requestedName);
         if (!record) {
           errorResponse(response, 404, 'file_not_found', 'File does not exist');
           return;
