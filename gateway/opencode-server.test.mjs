@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { EventEmitter } from 'node:events';
 import {
   OpenCodeServerClient,
+  extractFilePathsFromMessages,
   mapOpenCodeMessagesToResumeTurns,
   mapOpenCodeSessionToResumeItem,
   mapOpenCodeSessionToResumeSession
@@ -137,6 +138,22 @@ describe('opencode server adapter', () => {
         ]
       }
     ]);
+  });
+
+  it('extracts produced file paths from message parts (ignores read/other)', () => {
+    const files = extractFilePathsFromMessages([
+      {
+        parts: [
+          { type: 'tool', tool: 'write', state: { input: { filePath: '/root/report.pptx', content: 'x' } } },
+          { type: 'tool', tool: 'edit', state: { input: { file_path: 'notes.txt' } } },
+          { type: 'tool', tool: 'read', state: { input: { filePath: '/root/secret.txt' } } },
+          { type: 'file', filename: '/root/deck.docx' },
+          { type: 'text', text: 'done' }
+        ]
+      }
+    ]);
+
+    assert.deepEqual(files.sort(), ['/root/deck.docx', '/root/report.pptx', 'notes.txt']);
   });
 
   it('combines an OpenCode session and messages into a resume session', () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, after } from 'node:test';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -614,42 +614,53 @@ describe('gateway', () => {
 });
 
 describe('files', () => {
-  it('lists and downloads files from the device-exclusive workspace', async () => {
+  it('lists and downloads files attributed to the device sessions', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test-'));
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
+    const reportPath = path.join(filesRoot, 'report.pptx');
+    const notesPath = path.join(filesRoot, 'notes.txt');
+    writeFileSync(reportPath, Buffer.from('fake-pptx-bytes'));
+    writeFileSync(notesPath, 'hello');
+    writeFileSync(path.join(filesRoot, 'secret.sh'), '#!/bin/sh');
+    writeFileSync(path.join(filesRoot, '.hidden.txt'), 'secret');
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        return { threadId: 'ses_files_list', title: 'files', cwd, status: 'idle', turns: [] };
+      },
+      async readResume({ threadId }) {
+        return { threadId, title: 'files', cwd: '', status: 'idle', turns: [], files: [reportPath, notesPath] };
+      }
+    };
     try {
       await withServer(async (baseUrl) => {
         const device = await activateDevice(baseUrl, { deviceId: 'dev-files-list' });
-        // 文件落在设备专属工作区（<FILES_ROOT>/workspaces/<deviceId>），列表/下载只该目录。
-        const devWorkspace = deviceWorkspace(filesRoot, 'dev-files-list');
-        mkdirSync(devWorkspace, { recursive: true });
-        writeFileSync(path.join(devWorkspace, 'report.pptx'), Buffer.from('fake-pptx-bytes'));
-        writeFileSync(path.join(devWorkspace, 'notes.txt'), 'hello');
-        writeFileSync(path.join(filesRoot, 'secret.sh'), '#!/bin/sh');
-        writeFileSync(path.join(filesRoot, '.hidden.txt'), 'secret');
-
-        const listResponse = await fetch(`${baseUrl}/api/files`, {
-          headers: { authorization: `Bearer ${device.accessToken}` }
+        const auth = { authorization: `Bearer ${device.accessToken}` };
+        const created = await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST',
+          headers: { ...auth, 'content-type': 'application/json' },
+          body: JSON.stringify({ cwd: '~' })
         });
+        assert.equal(created.status, 200);
+        const resumed = await fetch(`${baseUrl}/api/opencode/resumes/ses_files_list/resume`, {
+          method: 'POST',
+          headers: auth
+        });
+        assert.equal(resumed.status, 200);
+
+        const listResponse = await fetch(`${baseUrl}/api/files`, { headers: auth });
         assert.equal(listResponse.status, 200);
         const { items } = await listResponse.json();
-        const names = items.map((item) => item.name).sort();
-        // 设备目录外的全局文件不可见 → 只列本设备工作区产物，越权文件天然不可达。
-        assert.deepEqual(names, ['notes.txt', 'report.pptx']);
+        // 只列“本设备会话登记过”的文件（secret.sh / .hidden.txt 未登记，不可见）。
+        assert.deepEqual(items.map((item) => item.name).sort(), ['notes.txt', 'report.pptx']);
 
-        const downloadResponse = await fetch(`${baseUrl}/api/files/report.pptx/download`, {
-          headers: { authorization: `Bearer ${device.accessToken}` }
-        });
+        const downloadResponse = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: auth });
         assert.equal(downloadResponse.status, 200);
         const blob = await downloadResponse.blob();
         assert.equal(blob.size, 15);
-        const text = await blob.text();
-        assert.equal(text, 'fake-pptx-bytes');
-
-        const contentDisposition = downloadResponse.headers.get('content-disposition');
-        assert.match(contentDisposition, /report\.pptx/);
-      });
+        assert.equal(await blob.text(), 'fake-pptx-bytes');
+        assert.match(downloadResponse.headers.get('content-disposition'), /report\.pptx/);
+      }, { opencodeClient });
     } finally {
       if (originalRoot === undefined) {
         delete process.env.FILES_ROOT;
@@ -660,31 +671,21 @@ describe('files', () => {
     }
   });
 
-  it('requires auth and rejects path traversal / disallowed files', async () => {
+  it('requires auth and rejects unregistered / traversal downloads', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test2-'));
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
     try {
       await withServer(async (baseUrl) => {
         const device = await activateDevice(baseUrl, { deviceId: 'dev-files-auth' });
+        const auth = { authorization: `Bearer ${device.accessToken}` };
 
-        const noAuth = await fetch(`${baseUrl}/api/files`);
-        assert.equal(noAuth.status, 401);
+        assert.equal((await fetch(`${baseUrl}/api/files`)).status, 401);
 
-        const traversal = await fetch(`${baseUrl}/api/files/..%2F..%2Fetc%2Fpasswd/download`, {
-          headers: { authorization: `Bearer ${device.accessToken}` }
-        });
-        assert.equal(traversal.status, 400);
-
-        const disallowed = await fetch(`${baseUrl}/api/files/whatever.exe/download`, {
-          headers: { authorization: `Bearer ${device.accessToken}` }
-        });
-        assert.equal(disallowed.status, 400);
-
-        const missing = await fetch(`${baseUrl}/api/files/nope.txt/download`, {
-          headers: { authorization: `Bearer ${device.accessToken}` }
-        });
-        assert.equal(missing.status, 404);
+        // 下载必须命中“本设备会话登记表”，未登记（含穿越、非法扩展名）一律 404。
+        assert.equal((await fetch(`${baseUrl}/api/files/..%2F..%2Fetc%2Fpasswd/download`, { headers: auth })).status, 404);
+        assert.equal((await fetch(`${baseUrl}/api/files/whatever.exe/download`, { headers: auth })).status, 404);
+        assert.equal((await fetch(`${baseUrl}/api/files/nope.txt/download`, { headers: auth })).status, 404);
       });
     } finally {
       if (originalRoot === undefined) {
@@ -696,10 +697,25 @@ describe('files', () => {
     }
   });
 
-  it('isolates files per device-exclusive workspace', async () => {
+  it('isolates files per device via session attribution', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test3-'));
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
+    const reportPath = path.join(filesRoot, 'report.pptx');
+    const notesPath = path.join(filesRoot, 'notes.txt');
+    writeFileSync(reportPath, 'a-report');
+    writeFileSync(notesPath, 'b-notes');
+    let counter = 0;
+    const filesByThread = new Map();
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        counter += 1;
+        return { threadId: `ses_files_${counter}`, title: 't', cwd, status: 'idle', turns: [] };
+      },
+      async readResume({ threadId }) {
+        return { threadId, title: 't', cwd: '', status: 'idle', turns: [], files: filesByThread.get(threadId) ?? [] };
+      }
+    };
     try {
       await withServer(async (baseUrl) => {
         const deviceA = await activateDevice(baseUrl, { deviceId: 'dev-files-a' });
@@ -707,29 +723,30 @@ describe('files', () => {
         const authA = { authorization: `Bearer ${deviceA.accessToken}` };
         const authB = { authorization: `Bearer ${deviceB.accessToken}` };
 
-        // 各设备产物分别落在自己的专属工作区。
-        const wsA = deviceWorkspace(filesRoot, 'dev-files-a');
-        const wsB = deviceWorkspace(filesRoot, 'dev-files-b');
-        mkdirSync(wsA, { recursive: true });
-        mkdirSync(wsB, { recursive: true });
-        writeFileSync(path.join(wsA, 'report.pptx'), Buffer.from('a-report'));
-        writeFileSync(path.join(wsB, 'notes.txt'), 'b-notes');
+        const createA = await (await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST', headers: { ...authA, 'content-type': 'application/json' }, body: JSON.stringify({ cwd: '~' })
+        })).json();
+        const createB = await (await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST', headers: { ...authB, 'content-type': 'application/json' }, body: JSON.stringify({ cwd: '~' })
+        })).json();
+        filesByThread.set(createA.threadId, [reportPath]);
+        filesByThread.set(createB.threadId, [notesPath]);
 
-        // 各自只看到自己工作区内的文件。
+        await fetch(`${baseUrl}/api/opencode/resumes/${createA.threadId}/resume`, { method: 'POST', headers: authA });
+        await fetch(`${baseUrl}/api/opencode/resumes/${createB.threadId}/resume`, { method: 'POST', headers: authB });
+
         const listA = await (await fetch(`${baseUrl}/api/files`, { headers: authA })).json();
         const listB = await (await fetch(`${baseUrl}/api/files`, { headers: authB })).json();
         assert.deepEqual(listA.items.map((i) => i.name).sort(), ['report.pptx']);
         assert.deepEqual(listB.items.map((i) => i.name).sort(), ['notes.txt']);
 
-        // A 能下载自己的文件。
         const downloadA = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authA });
         assert.equal(downloadA.status, 200);
         assert.equal(await downloadA.text(), 'a-report');
 
-        // B 的工作区里没有该文件，无法越权下载。
-        const downloadByB = await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authB });
-        assert.equal(downloadByB.status, 404);
-      });
+        // B 未登记该文件 → 404（看不到也下不到）
+        assert.equal((await fetch(`${baseUrl}/api/files/report.pptx/download`, { headers: authB })).status, 404);
+      }, { opencodeClient });
     } finally {
       if (originalRoot === undefined) {
         delete process.env.FILES_ROOT;
@@ -740,35 +757,43 @@ describe('files', () => {
     }
   });
 
-  it('shares one workspace across re-registrations of the same device', async () => {
+  it('keeps a device files across re-registrations (same device, same code)', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test4-'));
     const originalRoot = process.env.FILES_ROOT;
     process.env.FILES_ROOT = filesRoot;
+    const sharedPath = path.join(filesRoot, 'shared.md');
+    writeFileSync(sharedPath, 'shared-bytes');
+    const filesByThread = new Map();
+    const opencodeClient = {
+      async startResume({ cwd }) {
+        return { threadId: 'ses_shared', title: 't', cwd, status: 'idle', turns: [] };
+      },
+      async readResume({ threadId }) {
+        return { threadId, title: 't', cwd: '', status: 'idle', turns: [], files: filesByThread.get(threadId) ?? [] };
+      }
+    };
     try {
       await withServer(async (baseUrl) => {
-        // 同一设备先后两次注册（模拟重装）→ 仍是同一 deviceId、同一注册码、同一工作区。
         const first = await activateDevice(baseUrl, { deviceId: 'dev-multi-code' });
-        const ws = deviceWorkspace(filesRoot, 'dev-multi-code');
-        mkdirSync(ws, { recursive: true });
-        writeFileSync(path.join(ws, 'shared.md'), 'shared-bytes');
-
         const second = await activateDevice(baseUrl, { deviceId: 'dev-multi-code' });
         assert.equal(second.registrationCode, first.registrationCode);
 
-        const headers = { authorization: `Bearer ${second.accessToken}` };
-        const list = await (await fetch(`${baseUrl}/api/files`, { headers })).json();
+        const authSecond = { authorization: `Bearer ${second.accessToken}` };
+        const created = await (await fetch(`${baseUrl}/api/opencode/resumes`, {
+          method: 'POST', headers: { ...authSecond, 'content-type': 'application/json' }, body: JSON.stringify({ cwd: '~' })
+        })).json();
+        filesByThread.set(created.threadId, [sharedPath]);
+        await fetch(`${baseUrl}/api/opencode/resumes/${created.threadId}/resume`, { method: 'POST', headers: authSecond });
+
+        const list = await (await fetch(`${baseUrl}/api/files`, { headers: authSecond })).json();
         assert.deepEqual(list.items.map((i) => i.name), ['shared.md']);
 
-        const download = await fetch(`${baseUrl}/api/files/shared.md/download`, { headers });
-        assert.equal(download.status, 200);
-        assert.equal(await download.text(), 'shared-bytes');
-
-        // 旧的 token 也仍指向同一设备，同样能访问。
-        const oldDownload = await fetch(`${baseUrl}/api/files/shared.md/download`, {
-          headers: { authorization: `Bearer ${first.accessToken}` }
-        });
+        // 旧 token 仍指向同一设备，同样可见/可下载。
+        const authFirst = { authorization: `Bearer ${first.accessToken}` };
+        const oldDownload = await fetch(`${baseUrl}/api/files/shared.md/download`, { headers: authFirst });
         assert.equal(oldDownload.status, 200);
-      });
+        assert.equal(await oldDownload.text(), 'shared-bytes');
+      }, { opencodeClient });
     } finally {
       if (originalRoot === undefined) {
         delete process.env.FILES_ROOT;

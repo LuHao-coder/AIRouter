@@ -47,12 +47,20 @@ node gateway/server.mjs
 注册码由服务器自动分配、**一设备一码、只读**：App 端不可编辑；重复注册/重装设备始终返回同一个码，
 服务端绑定后不可更改/换绑。`GET /api/auth/me` 也会返回该码。
 
-## 文件隔离
+## 文件（会话 → 文件归属）
 
-AI 产物按设备隔离：会话工作目录被强制为 `<FILES_ROOT>/workspaces/<sha256(deviceId)>`，
-`GET /api/files` 与 `GET /api/files/{name}/download` 只作用于本设备工作区。
-隔离维度是 **deviceId 而非注册码**——同一设备使用多个注册码，仍是同一个工作区。
-目录名用 deviceId 的哈希（而非原字符串），杜绝不同 deviceId 归一化后碰撞到同一目录。
+opencode 实际在 `OPENCODE_WORKDIR`（如 `/root`）下读写文件，且不按会话切换目录
+（`POST /session` 不支持指定 directory）。因此文件隔离采用**登记式归属**：
+
+- 会话产出的文件路径记录在 SQLite `session_files(thread_id → device_id)`，随会话归属到设备。
+- `GET /api/files` 只列**本设备会话登记过**的文件（按 `name` 去重、白名单扩展名、存在校验）。
+- `GET /api/files/{name}/download` 必须**精确命中**本设备登记记录，否则 404——天然防越权与路径穿越。
+- 归属维度是 **deviceId**（同一设备多个注册码/多次重装都归同一设备）。
+- 物理文件仍在共享目录；隔离在“登记 + 接口”层，非物理层。
+- 只登记**新会话消息**里产生的文件：历史文件不纳入；用 `bash` 直接写出的文件可能漏登记。
+
+> `OPENCODE_WORKDIR/workspaces/<sha256(deviceId)>` 目录仍会创建并作为会话标题/前向兼容的
+> `directory` 参数传递，但当前 opencode 版本不据此切换目录，故不作为文件隔离依据。
 
 ## 会话归属
 

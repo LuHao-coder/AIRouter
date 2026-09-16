@@ -61,6 +61,21 @@ function initDb() {
       device_id TEXT NOT NULL,
       created_at TEXT
     );
+
+    -- 会话产出的文件登记表：文件物理仍在 OPENCODE_WORKDIR，按会话归属到设备，
+    -- 文件列表/下载按此表做设备隔离（不依赖 opencode 的目录隔离）。
+    CREATE TABLE IF NOT EXISTS session_files (
+      thread_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      size INTEGER DEFAULT 0,
+      modified_at TEXT DEFAULT '',
+      created_at TEXT,
+      PRIMARY KEY (thread_id, path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_session_files_device ON session_files(device_id);
   `);
 
   // 迁移兼容：旧库可能把多个码绑到同一设备，先按设备保留最早一条，再建唯一索引，
@@ -236,6 +251,36 @@ export function listDeviceSessions(deviceId) {
 
 export function deleteDeviceSession(threadId) {
   return getDb().prepare('DELETE FROM device_sessions WHERE thread_id = ?').run(threadId);
+}
+
+export function upsertSessionFile(threadId, deviceId, filePath, name, size, modifiedAt) {
+  const now = new Date().toISOString();
+  return getDb().prepare(`
+    INSERT INTO session_files (thread_id, device_id, path, name, size, modified_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(thread_id, path) DO UPDATE SET
+      size = excluded.size,
+      modified_at = excluded.modified_at
+  `).run(threadId, deviceId, filePath, name, size, modifiedAt, now);
+}
+
+/** 某设备所有会话产出的文件（按 name 去重，保留较新的 size/modified_at）。 */
+export function listSessionFiles(deviceId) {
+  return getDb().prepare(`
+    SELECT name, MAX(size) AS size, MAX(modified_at) AS modified_at
+      FROM session_files
+     WHERE device_id = ?
+     GROUP BY name
+  `).all(deviceId);
+}
+
+/** 精确查某设备名下、指定 name 的文件记录（用于下载校验，杜绝越权/穿越）。 */
+export function findSessionFile(deviceId, name) {
+  return getDb().prepare(`
+    SELECT path, name FROM session_files
+     WHERE device_id = ? AND name = ?
+     LIMIT 1
+  `).get(deviceId, name);
 }
 
 export function cleanupExpiredNonces() {

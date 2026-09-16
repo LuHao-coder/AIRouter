@@ -28,8 +28,6 @@ import {
 import {
   resolveFilesRoot,
   deviceWorkspace,
-  listGeneratedFiles,
-  resolveDownloadPath,
   isAllowedFile,
 } from './file-service.mjs';
 import {
@@ -37,6 +35,9 @@ import {
   getDeviceSessionOwner,
   listDeviceSessions,
   deleteDeviceSession,
+  upsertSessionFile,
+  listSessionFiles,
+  findSessionFile,
 } from './db.mjs';
 
 const DEFAULT_HOST = '0.0.0.0';
@@ -128,6 +129,49 @@ function requireThreadOwnership(response, deviceId, threadId) {
     return false;
   }
   return true;
+}
+
+/**
+ * 把会话产出的文件路径登记到 session_files（按设备归属）。
+ * 只登记位于 filesRoot 之下、扩展名白名单、且当前存在的文件。
+ */
+function recordSessionFiles(deviceId, threadId, paths) {
+  if (!deviceId || !threadId || !Array.isArray(paths) || paths.length === 0) {
+    return;
+  }
+  const filesRoot = resolveFilesRoot();
+  if (!filesRoot) {
+    return;
+  }
+  const root = path.resolve(filesRoot);
+  for (const raw of paths) {
+    const candidate = typeof raw === 'string' ? raw.trim() : '';
+    if (candidate.length === 0) {
+      continue;
+    }
+    const absolute = path.resolve(path.isAbsolute(candidate) ? candidate : path.join(root, candidate));
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+      continue;
+    }
+    if (!isAllowedFile(absolute)) {
+      continue;
+    }
+    let stats;
+    try {
+      stats = fs.statSync(absolute);
+    } catch (error) {
+      continue;
+    }
+    if (!stats.isFile()) {
+      continue;
+    }
+    const name = path.relative(root, absolute).split(path.sep).join('/');
+    try {
+      upsertSessionFile(threadId, deviceId, absolute, name, stats.size, stats.mtime.toISOString());
+    } catch (error) {
+      console.error(`[gateway] 登记会话文件失败: ${error instanceof Error ? error.message : error}`);
+    }
+  }
 }
 
 function createGatewayHandler(options = {}) {
@@ -430,6 +474,7 @@ function createGatewayHandler(options = {}) {
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
         const session = await opencodeClient.readResume({ threadId, directory });
+        recordSessionFiles(auth.deviceId, threadId, session.files);
         jsonResponse(response, 200, session);
         return;
       }
@@ -502,6 +547,7 @@ function createGatewayHandler(options = {}) {
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
         const session = await opencodeClient.sendResumeMessage({ threadId, message, directory });
+        recordSessionFiles(auth.deviceId, threadId, session.files);
         jsonResponse(response, 200, session);
         return;
       }
@@ -546,33 +592,72 @@ function createGatewayHandler(options = {}) {
         return;
       }
 
-      // ─── Files: List generated files (设备专属，只列本设备工作区) ───
+      // ─── Files: List（按设备汇总其会话产出的文件；登记式隔离，不依赖目录） ───
       if (request.method === 'GET' && url.pathname === '/api/files') {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const workspace = deviceWorkspace(resolveFilesRoot(), auth.deviceId);
-        if (!workspace) {
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
-        // AI 文件落在设备专属工作区 → 这里只列该设备自己的文件，实现严格隔离。
-        jsonResponse(response, 200, { items: listGeneratedFiles(workspace) });
+        const root = path.resolve(filesRoot);
+        const items = [];
+        for (const row of listSessionFiles(auth.deviceId)) {
+          const absolute = path.resolve(root, row.name);
+          if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+            continue;
+          }
+          if (!isAllowedFile(absolute)) {
+            continue;
+          }
+          let stats;
+          try {
+            stats = fs.statSync(absolute);
+          } catch (error) {
+            continue;
+          }
+          if (!stats.isFile()) {
+            continue;
+          }
+          items.push({ name: row.name, size: stats.size, modifiedAt: stats.mtime.toISOString() });
+        }
+        items.sort((left, right) => left.name.localeCompare(right.name));
+        jsonResponse(response, 200, { items });
         return;
       }
 
-      // ─── Files: Download（仅限当前设备工作区，杜绝越权看他人文件） ───
+      // ─── Files: Download（仅限本设备会话登记过的文件，精确查表，杜绝越权/穿越） ───
       const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
       if (request.method === 'GET' && downloadMatch) {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = deviceWorkspace(resolveFilesRoot(), auth.deviceId);
+        const filesRoot = resolveFilesRoot();
         if (!filesRoot) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
 
-        const target = resolveDownloadPath(filesRoot, downloadMatch[1]);
-        if (!target || !isAllowedFile(target)) {
+        let requestedName;
+        try {
+          requestedName = decodeURIComponent(downloadMatch[1]);
+        } catch (error) {
+          requestedName = downloadMatch[1];
+        }
+
+        const record = findSessionFile(auth.deviceId, requestedName);
+        if (!record) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+
+        const root = path.resolve(filesRoot);
+        const target = path.resolve(root, record.name);
+        if (target !== root && !target.startsWith(root + path.sep)) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+        if (!isAllowedFile(target)) {
           errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
           return;
         }

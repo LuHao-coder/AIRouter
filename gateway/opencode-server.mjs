@@ -59,6 +59,59 @@ export function mapOpenCodeSessionToResumeSession(session, messages = []) {
   };
 }
 
+// 会把文件写入磁盘的工具（read 之类的只读工具不计入）。
+const FILE_PRODUCING_TOOLS = new Set([
+  'write', 'edit', 'patch', 'apply_patch', 'multiedit', 'create', 'write_file', 'str_replace_editor'
+]);
+
+/**
+ * 从会话消息 parts 中提取“产出/改动的文件路径”。
+ * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
+ */
+export function extractFilePathsFromMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const paths = new Set();
+  const add = (value) => {
+    const path = normalizeString(value);
+    if (path.length > 0) {
+      paths.add(path);
+    }
+  };
+
+  for (const message of messages) {
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    for (const part of parts) {
+      const type = normalizeString(part?.type);
+      if (type === 'file') {
+        add(part?.filename);
+        add(part?.path);
+        continue;
+      }
+      if (type !== 'tool') {
+        continue;
+      }
+      const toolName = normalizeString(part?.tool).toLowerCase();
+      if (!FILE_PRODUCING_TOOLS.has(toolName)) {
+        continue;
+      }
+      const input = part?.state?.input ?? {};
+      const metadata = part?.state?.metadata ?? {};
+      add(input.filePath);
+      add(input.file_path);
+      add(input.path);
+      add(input.filename);
+      add(metadata.filepath);
+      add(metadata.filePath);
+      add(metadata.path);
+    }
+  }
+
+  return Array.from(paths);
+}
+
 export class OpenCodeServerClient {
   constructor(options = {}) {
     this.url = stripTrailingSlash(options.url ?? process.env.OPENCODE_SERVER_URL ?? DEFAULT_OPENCODE_SERVER_URL);
@@ -113,7 +166,10 @@ export class OpenCodeServerClient {
     const directory = normalizeString(options.directory);
     const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
     const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`, { directory });
-    return mapOpenCodeSessionToResumeSession(session, messages);
+    return {
+      ...mapOpenCodeSessionToResumeSession(session, messages),
+      files: extractFilePathsFromMessages(messages)
+    };
   }
 
   async startResume(options = {}) {
