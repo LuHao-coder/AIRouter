@@ -133,7 +133,7 @@ describe('opencode server adapter', () => {
             id: 'msg_assistant:prt_file',
             role: 'tool',
             kind: 'file',
-            text: 'entry/src/main/ets/pages/Index.ets',
+            text: 'Index.ets',
             status: ''
           }
         ]

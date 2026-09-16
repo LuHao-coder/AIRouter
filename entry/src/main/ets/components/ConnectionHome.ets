@@ -59,7 +59,6 @@ import {
   resolveResumeContentInitialZoomScale,
   resolveResumeContentZoomScale,
   resolveResumeDiffLineContext,
-  resolveResumeDirectoryText,
   resolveResumeDiffLineTextStyle,
   resolveResumeTimestampText,
   resolveResumeFeedbackAction,
@@ -2470,18 +2469,6 @@ export struct ConnectionHome {
     return `${title.substring(0, 8)}...`;
   }
 
-  private activeResumeCwd(): string {
-    if (!this.hasActiveResumeSession) {
-      return '';
-    }
-
-    return this.activeResumeSession.cwd;
-  }
-
-  private activeResumeDirectoryText(): string {
-    return resolveResumeDirectoryText(this.activeResumeCwd());
-  }
-
   private activeResumeTurns(): ResumeTurn[] {
     if (!this.hasActiveResumeSession) {
       return [];
@@ -4215,12 +4202,6 @@ export struct ConnectionHome {
                     .fontWeight(FontWeight.Medium)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-                  Text(resume.subtitle)
-                    .fontSize(11)
-                    .fontColor(TERMINAL_MUTED_TEXT_COLOR)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
                     .layoutWeight(1)
                     .alignItems(HorizontalAlign.Start)
@@ -4839,12 +4820,6 @@ export struct ConnectionHome {
                       .fontWeight(FontWeight.Medium)
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-                    Text(resume.subtitle)
-                      .fontSize(12)
-                      .fontColor(TERMINAL_MUTED_TEXT_COLOR)
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
@@ -4998,15 +4973,6 @@ export struct ConnectionHome {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-
-        Text(this.activeResumeDirectoryText())
-          .fontSize(12)
-          .fontFamily(TERMINAL_FONT_FAMILY)
-          .fontColor(TERMINAL_DIM_TEXT_COLOR)
-          .width('100%')
-          .textAlign(TextAlign.Start)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 12, bottom: 10 })

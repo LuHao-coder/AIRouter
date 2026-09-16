@@ -67,6 +67,9 @@ const FILE_PRODUCING_TOOLS = new Set([
 // shell 类工具：需从命令/输出里扫文件路径（bash 直接写文件不会被上面识别）。
 const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
 
+// 会话兜底命名：取首条消息前 N 个字符。
+const SESSION_TITLE_MAX_LENGTH = 20;
+
 // 会被登记的产出文件扩展名（与 file-service 白名单一致）。
 const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
 
@@ -287,14 +290,10 @@ export class OpenCodeServerClient {
   async startResume(options = {}) {
     // directory 决定 opencode 的项目/工作目录：不同设备各自的工作区。
     const directory = normalizeString(options.directory) || normalizeString(options.cwd);
-    const body = {};
-    if (directory.length > 0 && directory !== '~') {
-      body.title = directory;
-    }
-
+    // 不复用目录当标题：让 opencode 按首句自动命名（未自动命名时由 sendResumeMessage 兜底）。
     const session = await this.request('/session', {
       method: 'POST',
-      body,
+      body: {},
       directory: directory !== '~' ? directory : ''
     });
     this.invalidateSessionsCache();
@@ -322,7 +321,22 @@ export class OpenCodeServerClient {
       directory: normalizeString(options.directory)
     });
 
-    return this.readResume({ threadId, directory: options.directory });
+    const session = await this.readResume({ threadId, directory: options.directory });
+
+    // 兜底命名：若 opencode 还没按首句命名（标题仍为空/就是 session id），用本条消息前 20 字命名。
+    if (isSessionTitleUnset(session.title, threadId)) {
+      const title = deriveSessionTitle(message);
+      if (title.length > 0) {
+        try {
+          await this.renameResume({ threadId, name: title, directory: normalizeString(options.directory) });
+          session.title = title;
+        } catch (error) {
+          console.error(`[opencode] 会话兜底命名失败: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+    }
+
+    return session;
   }
 
   async archiveResume(options = {}) {
@@ -519,7 +533,8 @@ function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
 
   if (type === 'file') {
     const filename = normalizeString(part?.filename) || normalizeString(part?.path) || 'file';
-    return resumeContent(`${messageId}:${partId}`, 'tool', 'file', filename, '');
+    // 只展示文件名+后缀，不展示完整路径。
+    return resumeContent(`${messageId}:${partId}`, 'tool', 'file', baseName(filename), '');
   }
 
   return null;
@@ -595,6 +610,31 @@ function truncateText(value) {
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** 只取路径的文件名部分（兼容 `/`、`\`）。 */
+function baseName(value) {
+  const text = normalizeString(value).replace(/\\/g, '/');
+  const index = text.lastIndexOf('/');
+  return index >= 0 ? text.slice(index + 1) : text;
+}
+
+/** 会话标题是否“未命名”（空 / 就是 session id / 形如 ses_xxx）。 */
+function isSessionTitleUnset(title, threadId) {
+  const value = normalizeString(title);
+  if (value.length === 0) {
+    return true;
+  }
+  if (value === normalizeString(threadId)) {
+    return true;
+  }
+  return /^ses[_-]/i.test(value);
+}
+
+/** 兜底标题：取消息前 N 个字符（换行保留）。 */
+function deriveSessionTitle(message) {
+  const text = typeof message === 'string' ? message.replace(/\r\n/g, '\n').trim() : '';
+  return Array.from(text).slice(0, SESSION_TITLE_MAX_LENGTH).join('');
 }
 
 function requireThreadId(threadId) {
