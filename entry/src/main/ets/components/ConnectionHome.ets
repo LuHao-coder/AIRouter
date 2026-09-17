@@ -2920,7 +2920,12 @@ export struct ConnectionHome {
       uri: localUri,
       type: resolveMimeType(fileName)
     };
-    await context.startAbility(want);
+    try {
+      await context.startAbility(want);
+    } catch (error) {
+      console.error(`[ServerFiles] 调用外部应用打开文件失败: ${JSON.stringify(error)}`);
+      throw new Error('无法打开文件');
+    }
   }
 
   private async sendResumeMessage(): Promise<void> {
