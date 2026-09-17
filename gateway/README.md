@@ -2,7 +2,7 @@
 
 AIRouter 的 Gateway 是一个 Node.js HTTPS 服务，为 HarmonyOS App 提供：
 
-- 设备注册/激活认证（注册码 + Ed25519 签名）
+- 设备注册/激活认证（开放注册 + 自动分配设备码 + Ed25519 签名）
 - OpenCode 会话列表、恢复、消息转发
 - TURN/STUN ICE 配置下发
 

@@ -1,489 +1,172 @@
 # AIRouter 连接体验设计
 
-> 本文是设计历史文档，部分内容（认证方式、接口路径）已随迭代更新。当前实现以 [../README.md](../README.md) 与实际代码为准。
+> 本文档描述当前实现（固定单服务器 App）。以实际代码为准：
+> 默认服务器常量见 `entry/src/main/ets/model/AppConfig.ets`，交互实现见
+> `entry/src/main/ets/components/ConnectionHome.ets`。
 
 ## 1. 定位
 
-AIRouter 是一款 HarmonyOS 客户端，用来操作远端 Linux 服务器上的
-OpenCode。客户端只负责连接、认证、任务入口和审批交互，不直接连接 SSH，不
-直接执行 shell，也不保存服务器系统密码。
+AIRouter 是一款 HarmonyOS 客户端，用来操作远端 Linux 服务器上的 OpenCode。
+客户端只负责连接、认证、会话与文件交互，不直接连接 SSH、不执行 shell、不保存系统密码。
 
-本设计聚焦首屏连接体验：
+本设计聚焦连接体验：
 
-- 首次使用如何添加服务器。
-- 有历史连接时如何展示和管理。
-- 用户名密码登录如何和端侧 token 存储配合。
-- 点击连接后如何进入远端 Codex 工作台。
+- 首次启动如何**自动连接并激活**唯一的固定服务器。
+- 连接地址固定、不可修改，连接不可新增/删除。
+- 服务器自动分配、只读展示的**设备注册码**。
+- 连接后如何进入会话与文件工作区。
 
 ## 2. 设计原则
 
 视觉风格保持简洁、专业、安静、可信赖，并带轻微科技感。
 
-- 背景以浅色为主，使用白色、浅灰和低饱和蓝色。
+- 背景以深色终端风为主，使用低饱和配色与细边框。
 - 组件使用小圆角、细边框和轻微阴影。
 - 按钮和输入框保持克制，文案清楚，不做夸张装饰。
-- 图标使用线性风格。
 - 动效只用于状态切换和反馈，保持轻微、流畅。
-- 避免强渐变、重玻璃拟态、霓虹色和装饰性背景。
 
-推荐颜色：
+推荐颜色（终端主题，节选）：
 
 ```text
-Page background:   #F7F8FA
-Surface:           #FFFFFF
-Border:            #E6EAF0
-Primary text:      #1F2937
-Secondary text:    #6B7280
-Primary blue:      #3B82F6
-Soft blue:         #EAF2FF
+Background:        #0B0F14
+Panel:             #111820
+Border:            #22303C
+Primary text:      #E6EDF3
+Muted text:        #8B98A5
+Accent:            #3B82F6
 Danger:            #DC2626
 Success:           #16A34A
-Code surface:      #F3F5F8
 ```
 
 推荐尺寸：
 
 ```text
-Card radius:       8 vp
-Button radius:     6 vp
+Card radius:       10-20 vp
+Button radius:     8-12 vp
 Icon button size:  36-44 vp
-Empty add button:  80 vp
-Page horizontal:   20 vp
+Page horizontal:   16 vp
 Card spacing:      12 vp
 ```
 
 ## 3. 非目标
 
-第一版不做这些能力：
-
-- 不做 SSH 客户端。
-- 不保存 Linux 系统账号密码。
-- 不把 OpenAI API Key 下发到手机。
+- 不做 SSH 客户端，不保存 Linux 系统账号密码。
+- 不把 AI 供应商 API Key 下发到手机。
 - 不允许手机端输入任意服务器命令。
-- 不做完整移动 IDE。
-- 不支持超过 5 个历史连接。
+- **不支持用户新增/修改服务器地址**（App 固定单一服务器）。
+- **不支持删除连接**。
 
-这些边界能让产品保持简单，也能减少移动端误操作风险。
+## 4. 服务器与认证模型
 
-## 4. 认证模型
+客户端连接自托管网关（默认 `https://8.153.174.88:8443`，见 `AppConfig.ets`），不是 Linux SSH。
 
-客户端登录的是服务器上的 `codex-gateway`，不是 Linux SSH。
-
-登录流程：
-
-```text
-用户输入服务器地址、用户名、密码
-  -> HarmonyOS App 调用 codex-gateway
-  -> gateway 校验账号密码
-  -> gateway 返回 accessToken、refreshToken、codexSessionName
-  -> App 保存连接元数据
-  -> App 将 token 存入系统安全存储
-```
-
-密码规则：
-
-- 密码只用于登录请求。
-- 密码不得持久化到端侧。
-- token 失效且刷新失败时，再让用户输入密码。
-
-IP 输入规则：
-
-- 用户可以只输入 IP，例如 `192.168.1.10`。
-- App 将其规范化为 `https://192.168.1.10:8443`。
-- IP 只能定位服务端，不能完成认证。
-- 首次连接仍必须输入用户名和密码。
-
-支持输入形式：
-
-```text
-192.168.1.10
-192.168.1.10:8443
-https://192.168.1.10:8443
-codex.example.com
-https://codex.example.com
-```
+- **固定服务器**：地址、端口、证书均内置；用户不可修改，也不能新增其它服务器。
+- **证书固定**：App 只信任内置证书 `entry/src/main/resources/rawfile/codex-router-cert.pem`。
+- **注册开放**：`register` 只需 `deviceId` 与设备 Ed25519 公钥，无需注册码。
+- **自动分配注册码**：服务器首次为该设备随机生成注册码并绑定（`used_by_device` 唯一），之后不变、不可换绑；客户端只读展示。
+- 设备用私钥对 `challenge` 签名完成 `activate`，之后请求携带 `authorization: Bearer <accessToken>`。
+- 设备私钥由 HUKS 生成与存储，不出安全硬件。
 
 ## 5. 端侧连接数据
 
-端侧保存连接元数据和 token 引用，不保存密码。
+端侧只保存连接元数据与 token 引用（不保存密码）；`privateKeyRef` 字段用于保存服务器分配的注册码（只读展示）。
 
 ```json
 {
-  "id": "conn_001",
-  "name": "codex-main",
-  "host": "192.168.1.10",
+  "id": "8.153.174.88",
+  "name": "AIRouter",
+  "agent": "OpenCode",
+  "host": "8.153.174.88",
   "port": 8443,
   "scheme": "https",
-  "username": "alice",
-  "lastUsedAt": "2026-07-01T12:00:00+08:00",
-  "status": "unknown",
-  "accessTokenRef": "secure_access_conn_001",
-  "refreshTokenRef": "secure_refresh_conn_001"
+  "lastUsedAt": "2026-09-17T12:00:00+08:00",
+  "status": "online",
+  "accessTokenRef": "<access token>",
+  "refreshTokenRef": "<refresh token>",
+  "privateKeyRef": "air-xxxxxxxxxxxxxxxx"
 }
-```
-
-连接名称优先级：
-
-1. 用户手动设置的名称。
-2. 服务端返回的 `codexSessionName`。
-3. `username@host`。
-
-连接数量限制：
-
-- 最多保存 5 个连接。
-- 已达到 5 个连接时，添加按钮禁用。
-- 禁用提示文案：`最多支持 5 个连接，请删除一个连接后再添加。`
-
-## 6. 首屏结构
-
-首屏根据是否存在历史连接分为两种状态。
-
-### 6.1 无历史连接
-
-页面保持极简。
-
-布局：
-
-```text
-顶部：AIRouter
-中间：圆形加号按钮
-下方：添加你的第一台 OpenCode 服务器
-```
-
-交互：
-
-- 点击圆形加号按钮，弹出居中的添加连接卡片。
-- 卡片出现时使用轻微 fade + slide-up 动效。
-- 点击遮罩或取消按钮关闭卡片。
-
-视觉：
-
-- 页面背景为 `#F7F8FA`。
-- 圆形按钮为白底、细边框、轻微阴影。
-- 加号图标使用低饱和蓝色。
-- 不使用大面积插画或营销式空状态。
-
-### 6.2 有历史连接
-
-页面展示连接列表。
-
-布局：
-
-```text
-顶部栏：
-  左侧：Connections
-  右侧：添加连接按钮
-
-内容区：
-  连接卡片 1
-  连接卡片 2
-  连接卡片 3
 ```
 
 规则：
 
-- 添加连接按钮固定在顶部区域。
-- 连接卡片按最近使用时间倒序排列。
-- 连接数达到 5 个时，顶部添加按钮禁用。
-- 页面不再显示居中大加号。
+- **最多保存 1 个连接**（`MAX_CONNECTIONS = 1`）。
+- 启动时会丢弃非默认端点的旧连接。
+- 连接名称可编辑；服务器地址不可编辑。
 
-## 7. 居中连接卡片
+## 6. 首屏与启动
 
-所有连接相关操作统一使用居中卡片承载：
+启动时（`loadSavedConnections`）：
 
-- 添加连接。
-- 打开已有连接。
-- 重新登录。
-- 编辑连接。
-- 删除确认。
+1. 读取本地连接，**只保留默认端点**的连接。
+2. 若无有效连接 → **自动进入连接流程**（固定地址、只读展示），调用 `register` + `activate` 完成激活。
+3. 激活成功 → 进入会话列表（工作台）。
+4. 激活失败（离线/证书/服务未启动）→ 停留在连接页并给出错误，可点击“连接”重试。
 
-卡片样式：
-
-- 白色背景。
-- 8 vp 圆角。
-- 细边框。
-- 轻微阴影。
-- 宽度随屏幕收敛，手机端建议 86%-92% 屏宽。
-- 背后使用浅色遮罩，不使用强模糊。
-
-### 7.1 添加连接卡片
-
-字段：
+连接页包含：
 
 ```text
-服务器地址
-端口，默认 8443
-用户名
-密码
-连接名称，可选
-```
-
-按钮：
-
-```text
-取消
+服务器地址（只读，标注“固定 · 不可修改”）
+测试连接（测试固定服务器 /health）
+注册码（只读，连接后自动分配）
+连接名称（可选）
 连接
 ```
 
-校验：
+## 7. 连接卡片与编辑
 
-- 服务器地址必填。
-- 用户名必填。
-- 密码必填。
-- 端口必须是有效 TCP 端口。
-- 已有 5 个连接时禁止提交。
+- 连接卡片展示：连接名称、服务器地址、状态（在线/离线/需要登录/未检测）。
+- 点击卡片的行为、编辑入口与右滑手势沿用现有实现；**不提供“删除连接”**。
+- 编辑连接：只能修改**连接名称**；服务器地址只读、保存时强制写回固定值。
+- 不提供“新建连接”入口（`canAddConnection` 在已有连接时为 false）。
 
-连接状态：
+## 8. 工作台入口
 
-```text
-正在连接服务器
-正在验证服务端
-正在登录
-正在保存连接
-```
+连接成功后进入工作台，包含：
 
-失败提示：
+- 会话列表：列出**本设备**的历史会话，可恢复、重命名、删除（会话级删除保留）。
+- 会话内容：消息收发、等待/停止、长任务异步不阻塞；文件/工具进度可见。
+- 文件区：列出**本设备会话产出**的文件（按文件名校验归属），可下载/打开。
 
-```text
-无法连接服务器
-用户名或密码错误
-服务器证书不可信
-Codex Gateway 未启动
-最多支持 5 个连接
-```
+## 9. API 依赖
 
-### 7.2 打开已有连接卡片
-
-点击任意历史连接卡片，不直接进入工作台，而是先弹出居中确认卡片。
-
-卡片展示：
-
-```text
-连接名称
-服务器地址
-用户名
-最近使用时间
-当前状态
-```
-
-按钮：
-
-```text
-取消
-连接
-```
-
-行为：
-
-1. 用户点击历史连接。
-2. App 弹出居中连接卡片。
-3. 用户点击连接。
-4. App 使用 refresh token 尝试恢复会话。
-5. token 有效时进入服务器工作台。
-6. token 无效时，卡片切换为密码重新登录状态。
-
-密码重新登录状态：
-
-```text
-用户名，只读
-密码
-取消
-重新登录
-```
-
-这样设计的原因是：当用户保存了多台服务器时，进入前需要一个轻量确认点，
-避免误触后直接进入错误服务器。
-
-### 7.3 编辑连接卡片
-
-从卡片左滑动作进入。
-
-可编辑字段：
-
-```text
-连接名称
-服务器地址
-端口
-用户名
-```
-
-规则：
-
-- 密码不回填。
-- 只修改连接名称不需要重新登录。
-- 修改服务器地址、端口或用户名后，需要输入密码重新校验。
-- 保存成功后更新本地连接元数据。
-
-### 7.4 删除确认卡片
-
-从卡片左滑动作进入。
-
-文案：
-
-```text
-删除连接？
-删除后将移除此设备上的连接记录和登录凭据。
-```
-
-按钮：
-
-```text
-取消
-删除
-```
-
-规则：
-
-- 删除本地连接元数据。
-- 删除系统安全存储中的 token。
-- 如果能连接到服务端，尝试撤销 refresh token。
-- 如果撤销失败，仍完成本地删除，并记录轻量提示。
-
-## 8. 连接卡片
-
-卡片内容：
-
-```text
-连接名称
-服务器地址和端口
-用户名
-最近使用时间
-状态
-```
-
-状态值：
-
-```text
-online          在线
-offline         离线
-needs_login     需要重新登录
-unknown         未检测
-```
-
-状态展示：
-
-- 使用小圆点加文本。
-- 在线用低饱和绿色。
-- 离线用灰色。
-- 需要重新登录用低饱和橙色。
-- 不使用大面积警告色。
-
-点击行为：
-
-- 点击卡片打开居中连接卡片。
-- 不直接跳转工作台。
-
-## 9. 左滑操作
-
-连接卡片支持左滑。
-
-动作：
-
-```text
-编辑
-删除
-```
-
-交互规则：
-
-- 左滑后，操作按钮在卡片右侧露出。
-- 同一时间只允许一个卡片保持左滑展开。
-- 点击页面其他区域关闭展开状态。
-- 编辑按钮使用中性蓝。
-- 删除按钮使用克制红。
-- 删除必须二次确认。
-
-## 10. 工作台入口
-
-连接成功后进入服务器工作台。
-
-工作台第一版展示：
-
-```text
-服务器名称
-连接状态
-项目列表
-最近 Codex 任务
-待审批数量
-新建任务入口
-```
-
-如果后续连接中断：
-
-- 保留当前页面。
-- 顶部状态显示为离线。
-- 用户操作任务时提示重连或重新登录。
-
-## 11. API 依赖
-
-### 11.1 设备认证
-
-实际认证流程为：注册码注册 + Ed25519 签名激活（见 [device-auth-design.md](device-auth-design.md)）。
+### 9.1 设备注册与激活
 
 ```http
-POST /api/auth/register
-Content-Type: application/json
+POST /api/auth/register   { "deviceId": "...", "publicKey": "..." }
+                          -> { "activationToken": "...", "challenge": "...", "registrationCode": "air-..." }
+
+POST /api/auth/activate   { "deviceId": "...", "activationToken": "...", "signedChallenge": "..." }
+                          -> { "accessToken": "...", "refreshToken": "...", "registrationCode": "air-..." }
 ```
 
-```json
-{
-  "registrationCode": "xxxx",
-  "deviceName": "HarmonyOS Phone",
-  "publicKey": "<设备 Ed25519 公钥>"
-}
-```
+### 9.2 登录与刷新
 
 ```http
-POST /api/auth/activate
+POST /api/auth/challenge  { "deviceId": "..." }        -> { "nonce": "...", "expiresAt": "..." }
+POST /api/auth/verify     { "deviceId": "...", "nonce": "...", "signature": "..." } -> tokens
+POST /api/auth/refresh    { "refreshToken": "..." }    -> { "accessToken": "..." }
+POST /api/auth/logout     { "refreshToken": "..." }
+GET  /api/auth/me                                       -> { deviceId, sessionName, registrationCode }
 ```
 
-激活成功后返回 `accessToken` / `refreshToken`，后续请求携带
-`authorization: Bearer <accessToken>`。
-
-返回：
-
-```json
-{
-  "accessToken": "...",
-  "refreshToken": "...",
-  "codexSessionName": "codex-main",
-  "expiresIn": 3600
-}
-```
-
-### 11.2 刷新 Token
+### 9.3 会话与文件
 
 ```http
-POST /api/auth/refresh
-Authorization: Bearer <refreshToken>
+GET    /api/opencode/resumes
+POST   /api/opencode/resumes
+POST   /api/opencode/resumes/{id}/resume
+POST   /api/opencode/resumes/{id}/name
+POST   /api/opencode/resumes/{id}/messages
+DELETE /api/opencode/resumes/{id}
+GET    /api/files
+GET    /api/files/{name}/download
 ```
 
-### 11.3 当前用户
+## 10. 验收标准
 
-```http
-GET /api/auth/me
-Authorization: Bearer <accessToken>
-```
-
-### 11.4 登出
-
-```http
-POST /api/auth/logout
-Authorization: Bearer <accessToken>
-```
-
-## 12. MVP 验收标准
-
-- 无历史连接时，首屏只展示顶部标题、居中圆形加号和辅助文案。
-- 点击居中加号后，打开居中添加连接卡片。
-- 有历史连接时，添加按钮位于顶部，连接卡片依次展示在下方。
-- 历史连接最多 5 个。
-- 达到 5 个连接后，添加按钮禁用并展示明确提示。
-- 点击历史连接先弹出居中连接卡片，不直接进入工作台。
-- token 有效时，点击连接后进入工作台。
-- token 无效时，居中卡片切换为密码重新登录状态。
-- 连接卡片左滑支持编辑和删除。
-- 删除连接需要二次确认。
-- 只输入 IP 可以定位服务端，但首次登录仍需要用户名和密码。
-- 端侧不保存明文密码。
-- token 存入 HarmonyOS 安全存储。
+- App 内置固定服务器地址与证书，用户无法修改，也无法新增/删除连接。
+- 首次启动自动完成注册与激活；失败时可重试。
+- 注册码由服务器自动分配、只读展示、绑定本设备且不可更改。
+- 设备私钥存 HUKS；端侧不保存明文密码。
+- 会话与文件按设备归属隔离；文件区只展示本设备会话产出的文件。
+- 顶部不再显示服务器目录路径副标题；会话标题按首句自动命名且可重命名。

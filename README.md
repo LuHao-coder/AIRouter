@@ -1,6 +1,6 @@
 # AIRouter
 
-AIRouter 是 HarmonyOS 客户端 + OpenCode Gateway 组成的远程 AI 编码助手网关系统。HarmonyOS App 通过 HTTPS 连接您自建服务器上的 Gateway，与 OpenCode AI 助手交互，支持多网关管理、会话历史恢复与继续、设备认证。
+AIRouter 是 HarmonyOS 客户端 + OpenCode Gateway 组成的远程 AI 编码助手网关系统。HarmonyOS App 通过 HTTPS 连接自托管 Gateway，与 OpenCode AI 助手交互。App **固定连接单一自托管服务器**（内置地址与证书，用户不可修改），支持会话历史恢复与继续、按设备隔离的会话与文件、设备认证。
 
 ## 目录
 
@@ -25,8 +25,8 @@ start-gateway.sh          本地/ECS 网关启动脚本
 ```
 
 - Gateway 提供 HTTPS/HTTP 双入口、设备注册/激活认证、TURN/ICE 配置、OpenCode 会话恢复与消息转发。
-- 设备认证基于 Ed25519 签名 + 一次性注册码：新设备用注册码完成 `register`，再对 `challenge` 签名完成 `activate`，之后所有请求使用签名令牌。
-- App 内置固定 TLS 证书（`entry/src/main/resources/rawfile/codex-router-cert.pem`），只信任该证书签发的服务器，请使用与之一致的自签名证书。
+- 设备认证：**注册开放**。首次注册时服务器为设备**自动分配一个只读注册码**并绑定该设备（此后不可更改/换绑）；设备用 Ed25519 私钥对 `challenge` 签名完成 `activate`，之后所有请求使用签名令牌。
+- App 内置固定服务器地址（`entry/src/main/ets/model/AppConfig.ets`）与固定 TLS 证书（`entry/src/main/resources/rawfile/codex-router-cert.pem`），只连接并信任该服务器；更换服务器 IP/证书需重新构建并上架 App。
 
 ## 快速开始
 
@@ -66,7 +66,7 @@ hvigorw --mode module -p product=default -p module=entry@default \
   -p buildMode=release assembleHap --analyze=normal --parallel --no-daemon
 ```
 
-产物：`entry/build/default/outputs/default/entry-default-signed.hap`。在 App 中填入服务器地址 `https://<IP>:8443` 和注册码即可连接。
+产物：`entry/build/default/outputs/default/entry-default-signed.hap`。App 已内置固定服务器地址与证书，**首次启动会自动完成注册与激活**，用户无需（也无法）填写服务器地址或注册码。
 
 ## 环境变量
 
@@ -88,22 +88,24 @@ hvigorw --mode module -p product=default -p module=entry@default \
 
 ```text
 GET  /health
-POST /api/auth/register            设备注册（携带注册码）
-POST /api/auth/activate            设备激活（对 challenge 签名）
-POST /api/auth/challenge           获取激活挑战
+POST /api/auth/register            设备注册（无需注册码，服务器自动分配）
+POST /api/auth/activate            设备激活（对 challenge 签名，返回注册码）
+POST /api/auth/challenge           获取登录挑战
 POST /api/auth/verify              校验签名令牌
 POST /api/auth/refresh             刷新令牌
 POST /api/auth/logout              注销
-POST /api/auth/reregister          重新注册（换新注册码）
-GET  /api/auth/me                  当前设备信息
+POST /api/auth/reregister          重新注册（沿用同一设备码）
+GET  /api/auth/me                  当前设备信息（含注册码）
 GET  /api/turn/ice-config          TURN/ICE 配置
 GET  /api/projects
-GET  /api/opencode/resumes         会话列表
-POST /api/opencode/resumes         创建会话
+GET  /api/opencode/resumes         会话列表（仅本设备）
+POST /api/opencode/resumes         创建会话（绑定设备工作区）
 POST /api/opencode/resumes/{id}/resume    恢复会话
 POST /api/opencode/resumes/{id}/name     重命名会话
-POST /api/opencode/resumes/{id}/messages  发送消息
+POST /api/opencode/resumes/{id}/messages  发送消息（异步返回）
 DELETE /api/opencode/resumes/{id}        删除会话
+GET  /api/files                    本设备会话产出的文件列表
+GET  /api/files/{name}/download    下载文件（仅本设备登记文件）
 POST /api/projects/{name}/tasks   创建任务
 GET  /api/tasks/{id}              查询任务
 ```

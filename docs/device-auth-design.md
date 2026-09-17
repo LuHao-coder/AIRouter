@@ -197,44 +197,33 @@ App                                        Server
 ```
 App                                        Server
 ────                                       ──────
-1. 本地无密钥
-2. 用户输入服务器地址 + 注册码
+1. 本地无密钥（如重装/换机，deviceId 不变）
+2. 使用固定的服务器地址（无需输入注册码）
 3. POST /api/auth/reregister {
-      deviceId, publicKey,
-      registrationCode, mode: 'reset'
+      deviceId, publicKey, mode: 'reset'
     }
-                                         4. 验证注册码有效
-                                         5. 查找该 deviceId 的旧记录
-                                         6. 替换公钥，更新 device_name
-                                         7. 删除该设备所有旧 refresh_token
-                                         8. 标记注册码已使用
-                                         9. 签发新 JWT
-                                        10. 返回 { accessToken, refreshToken }
+                                         4. 查找该 deviceId 的旧记录
+                                         5. 替换公钥，更新 device_name
+                                         6. 删除该设备所有旧 refresh_token
+                                         7. 沿用该设备已绑定的注册码（不重新生成）
+                                         8. 签发新 JWT
+                                         9. 返回 { accessToken, refreshToken, registrationCode }
 ```
 
-#### 场景 B：疑似泄露（需管理员审批）
+#### 场景 B：疑似泄露（**尚未实现，规划中**）
+
+> 当前 `mode: 'compromise'` 只返回 `{ "status": "pending_approval" }`，尚无审批端点与后台。
+> 当前实际可用的是 `mode: "reset"`。
 
 ```
 App                                        Server
 ────                                       ──────
 1. 用户发现异常（如收到非本人操作告警）
 2. POST /api/auth/reregister {
-      deviceId, publicKey,
-      registrationCode, mode: 'compromise'
+      deviceId, publicKey, mode: 'compromise'
     }
-                                         3. 验证注册码有效
-                                         4. 创建 reactivation_request 记录
-                                            status='pending'
-                                         5. 返回 { status: 'pending_approval' }
-                                         6. ← 管理员在后台审批
-
-─── 审批通过后 ───
-
-7. App 轮询 POST /api/auth/reregister-status {
-      deviceId, requestToken
-    }
-                                         8. 返回 { status: 'approved' }
-9. App 自动执行激活流程（同首次注册）
+                                         3. 返回 { status: 'pending_approval' }
+                                         （审批流程规划中）
 ```
 
 ---

@@ -181,7 +181,7 @@ sudo systemctl status codex-router
 ```bash
 cd /opt/codex-router/codex-router-master
 
-# 生成随机一次性注册码
+# （可选）预置注册码——正常流程下服务器会自动为设备分配，无需手动生成
 node scripts/generate-registration-code.mjs        # 1 个
 node scripts/generate-registration-code.mjs 5      # 5 个
 
@@ -202,18 +202,19 @@ node scripts/rotate-signing-key.mjs && sudo systemctl restart codex-router
 
 ## 六、App 配置
 
-用户安装 App 后，输入：
+App 已内置固定服务器地址与证书（`entry/src/main/ets/model/AppConfig.ets`），
+**用户无需填写任何内容**：首次启动会自动连接并完成注册/激活（注册开放，服务器自动分配注册码）。
 
-- 服务器地址：`https://你的公网IP:8443`
-- 注册码：向你获取
+> 更换服务器 IP/证书后，必须同步更新 App 常量与内置证书，并重新构建、上架 App（地址与证书固定）。
 
 ## 七、安全建议
 
-1. **每台设备单独发码**
-   注册码随机生成、一码一设备、用后失效，不要多台设备共用一个码：
+1. **注册码由服务器自动分配**
+   注册开放：设备首次注册时服务器自动生成随机码并绑定该设备（一设备一码，不可更改/换绑），
+   **通常无需人工发码**。仅在需要预置/手工发码时使用：
    ```bash
    cd /opt/codex-router/codex-router-master
-   node scripts/generate-registration-code.mjs
+   node scripts/generate-registration-code.mjs   # 可选
    ```
 
 2. **配置防火墙**
