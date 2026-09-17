@@ -50,7 +50,8 @@ export interface ConnectionCarouselSelection {
   id: string;
 }
 
-export const MAX_CONNECTIONS: number = 5;
+// 固定单服务器：只允许一条连接。
+export const MAX_CONNECTIONS: number = 1;
 
 const DEFAULT_SCHEME: string = 'https';
 const DEFAULT_PORT: number = 8443;
@@ -466,25 +467,23 @@ export function removeSavedConnection(connections: SavedConnection[], id: string
   return connections.filter((item: SavedConnection) => item.id !== id);
 }
 
+// 服务器地址固定且不可修改，注册码由服务器自动分配，表单不再有必填项。
 export function resolveConnectionFormErrors(
-  address: string,
-  registrationCode: string,
-  requireRegistrationCode: boolean
+  _address: string,
+  _registrationCode: string,
+  _requireRegistrationCode: boolean
 ): ConnectionFormErrors {
-  const addressError = address.trim().length === 0 ? '请填写服务器地址' : '';
-  const privateKeyError = requireRegistrationCode && registrationCode.trim().length === 0 ? '请填写注册码' : '';
-
   return {
-    address: addressError,
-    privateKey: privateKeyError,
-    hasError: addressError.length > 0 || privateKeyError.length > 0
+    address: '',
+    privateKey: '',
+    hasError: false
   };
 }
 
 export function resolveConnectionReadinessError(connection: SavedConnection): string {
   if (connection.host.trim().length === 0 || connection.accessTokenRef.trim().length === 0 ||
     connection.refreshTokenRef.trim().length === 0) {
-    return '请先编辑连接，补全服务器地址。';
+    return '尚未连接服务器，请点击连接。';
   }
 
   return '';

@@ -73,6 +73,13 @@ import {
   visibleResumePreviewCount
 } from '../model/ConnectionModel';
 import { PreferencesConnectionRepository } from '../model/ConnectionRepository';
+import {
+  DEFAULT_GATEWAY_DISPLAY,
+  DEFAULT_GATEWAY_HOST,
+  DEFAULT_GATEWAY_NAME,
+  DEFAULT_GATEWAY_PORT,
+  DEFAULT_GATEWAY_SCHEME
+} from '../model/AppConfig';
 
 enum ConnectionDialog {
   NONE,
@@ -849,6 +856,12 @@ export struct ConnectionHome {
     AppStorage.setOrCreate<boolean>('codexRouterCanBack', this.canBackInApp());
   }
 
+  private isDefaultGatewayConnection(connection: SavedConnection): boolean {
+    return connection.host.trim() === DEFAULT_GATEWAY_HOST &&
+      connection.port === DEFAULT_GATEWAY_PORT &&
+      connection.scheme.trim() === DEFAULT_GATEWAY_SCHEME;
+  }
+
   private async loadSavedConnections(): Promise<void> {
     const context = this.getUIContext().getHostContext();
     if (context === undefined) {
@@ -859,12 +872,34 @@ export struct ConnectionHome {
     this.connectionRepository = new PreferencesConnectionRepository(context as common.Context);
 
     try {
-      this.connections = await this.connectionRepository.list();
+      const stored = await this.connectionRepository.list();
+      // 固定单服务器：只保留默认端点的连接，其余旧连接丢弃。
+      this.connections = stored.filter((item: SavedConnection) => this.isDefaultGatewayConnection(item));
+      if (this.connections.length !== stored.length) {
+        this.persistConnections();
+      }
       this.keepActiveConnectionInBounds();
-      this.loadActiveConnectionResumes();
+      if (this.connections.length === 0) {
+        // 首启/无有效连接：自动连接默认服务器（开放注册，自动激活）。
+        await this.startDefaultConnection();
+      } else {
+        this.loadActiveConnectionResumes();
+      }
     } catch (error) {
       this.feedback = '无法读取本地连接';
     }
+  }
+
+  private async startDefaultConnection(): Promise<void> {
+    this.selectedConnectionId = '';
+    this.draftAddress = DEFAULT_GATEWAY_DISPLAY;
+    this.draftUsername = '';
+    this.draftPassword = '';
+    this.draftName = '';
+    this.dialog = ConnectionDialog.ADD;
+    this.updateBackAvailability();
+    await this.loadDeviceId();
+    await this.addConnection();
   }
 
   private persistConnections(): void {
@@ -892,11 +927,11 @@ export struct ConnectionHome {
 
     return {
       id: '',
-      name: '',
+      name: DEFAULT_GATEWAY_NAME,
       agent: 'OpenCode',
-      host: '',
-      port: 8443,
-      scheme: 'https',
+      host: DEFAULT_GATEWAY_HOST,
+      port: DEFAULT_GATEWAY_PORT,
+      scheme: DEFAULT_GATEWAY_SCHEME,
       username: '',
       lastUsedAt: '',
       status: 'unknown',
@@ -912,12 +947,12 @@ export struct ConnectionHome {
 
   private openAddDialog(): void {
     if (!canAddConnection(this.connections)) {
-      this.feedback = '最多支持 5 个连接，请删除一个连接后再添加。';
+      this.feedback = '已连接服务器，无需新增连接。';
       return;
     }
 
     this.connectionActionMenuId = '';
-    this.draftAddress = '';
+    this.draftAddress = DEFAULT_GATEWAY_DISPLAY;
     this.draftUsername = '';
     this.draftPassword = '';
     this.draftName = '';
@@ -1343,7 +1378,8 @@ export struct ConnectionHome {
       return;
     }
 
-    const normalized = normalizeServerAddress(this.draftAddress);
+    // 服务器地址固定，不可修改。
+    const normalized = normalizeServerAddress(DEFAULT_GATEWAY_DISPLAY);
     const nextConnectionId = generateSavedConnectionId(normalized.host);
     const identityChanged = generateSavedConnectionId(selected.host) !== nextConnectionId;
     if (hasConnectionWithSameEndpoint(this.connections, normalized.scheme, normalized.host, normalized.port,
@@ -1848,12 +1884,8 @@ export struct ConnectionHome {
       return;
     }
     this.connectionTestResult = '';
-    if (this.draftAddress.trim().length === 0) {
-      this.connectionTestResult = '请输入服务器地址';
-      this.connectionTestPassed = false;
-      return;
-    }
-    const normalized = normalizeServerAddress(this.draftAddress);
+    // 服务器地址固定。
+    const normalized = normalizeServerAddress(DEFAULT_GATEWAY_DISPLAY);
     this.testingConnection = true;
     try {
       const ok = await this.gatewayClient.checkHealth(normalized.baseUrl);
@@ -1896,7 +1928,7 @@ export struct ConnectionHome {
     }
 
     if (!canAddConnection(this.connections)) {
-      this.dialogFeedback = '最多支持 5 个连接，请删除一个连接后再添加。';
+      this.dialogFeedback = '已连接服务器，无需新增连接。';
       this.feedback = '';
       return;
     }
@@ -1909,7 +1941,8 @@ export struct ConnectionHome {
       return;
     }
 
-    const normalized = normalizeServerAddress(this.draftAddress);
+    // 服务器地址固定，忽略任何输入。
+    const normalized = normalizeServerAddress(DEFAULT_GATEWAY_DISPLAY);
     if (hasConnectionWithSameEndpoint(this.connections, normalized.scheme, normalized.host, normalized.port, '')) {
       this.addressFeedback = '该服务器地址已存在';
       this.dialogFeedback = '同一个 Agent 和 IP 只能添加一个连接';
@@ -1977,7 +2010,7 @@ export struct ConnectionHome {
     if (nextConnections.length === this.connections.length) {
       this.connectionSubmitting = false;
       if (!canAddConnection(this.connections)) {
-        this.dialogFeedback = '最多支持 5 个连接，请删除一个连接后再添加。';
+        this.dialogFeedback = '已连接服务器，无需重复添加。';
       } else {
         this.addressFeedback = '该服务器地址已存在';
         this.dialogFeedback = '同一个 Agent 和 IP 只能添加一个连接';
@@ -2039,7 +2072,8 @@ export struct ConnectionHome {
 
   private openEditDialog(connection: SavedConnection): void {
     this.draftName = connection.name;
-    this.draftAddress = connection.port === 8443 ? connection.host : `${connection.host}:${connection.port}`;
+    // 服务器地址固定，不可修改。
+    this.draftAddress = DEFAULT_GATEWAY_DISPLAY;
     this.draftUsername = '';
     // 只读展示服务器已分配的注册码。
     this.draftPassword = connection.privateKeyRef;
@@ -3935,15 +3969,6 @@ export struct ConnectionHome {
       Blank()
         .width('100%')
         .height('8%')
-
-      if (!canAddConnection(this.connections)) {
-        Text('最多支持 5 个连接，请删除一个连接后再添加。')
-          .fontSize(13)
-          .fontColor(TERMINAL_MUTED_TEXT_COLOR)
-          .width('100%')
-          .textAlign(TextAlign.Center)
-          .padding({ left: 20, right: 20 })
-      }
     }
     .layoutWeight(1)
     .width('100%')
@@ -4466,19 +4491,6 @@ export struct ConnectionHome {
           this.clearCardActionClickSuppression();
           this.openEditDialog(connection);
         })
-
-      Button('删除')
-        .layoutWeight(1)
-        .height('100%')
-        .fontSize(12)
-        .fontColor(TERMINAL_DANGER_TEXT_COLOR)
-        .backgroundColor(TERMINAL_DANGER_SURFACE_COLOR)
-        .borderRadius(8)
-        .opacity(0.95)
-        .onClick(() => {
-          this.clearCardActionClickSuppression();
-          this.openDeleteDialog(connection);
-        })
     }
     .width('100%')
     .height('100%')
@@ -4633,6 +4645,40 @@ export struct ConnectionHome {
     .alignItems(HorizontalAlign.Start)
   }
 
+  // 服务器地址固定、不可修改：只读展示。
+  @Builder
+  private ReadonlyServerField(value: string) {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Text('服务器地址')
+          .fontSize(14)
+          .fontColor(TERMINAL_LABEL_COLOR)
+          .fontWeight(FontWeight.Medium)
+
+        Text('固定 · 不可修改')
+          .fontSize(11)
+          .fontColor(TERMINAL_DIM_TEXT_COLOR)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(value)
+        .width('100%')
+        .height(44)
+        .fontSize(15)
+        .fontColor(TERMINAL_TEXT_COLOR)
+        .backgroundColor(TERMINAL_INPUT_COLOR)
+        .borderRadius(10)
+        .border({ width: 1, color: TERMINAL_BORDER_COLOR })
+        .padding({ left: 12, right: 12, top: 12 })
+        .textAlign(TextAlign.Start)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   private DialogFrame(title: string) {
     Stack({ alignContent: Alignment.Center }) {
@@ -4694,7 +4740,7 @@ export struct ConnectionHome {
     Column({ space: 18 }) {
       Scroll() {
         Column({ space: 10 }) {
-            this.Field('服务器地址', this.draftAddress, '例如 8.153.174.88')
+            this.ReadonlyServerField(DEFAULT_GATEWAY_DISPLAY)
             Row({ space: 10 }) {
               Button(this.testingConnection ? '正在测试...' : '测试连接')
                 .height(36)
@@ -4724,7 +4770,7 @@ export struct ConnectionHome {
           this.Field('连接名称', this.draftName, '可选')
 
           Column({ space: 4 }) {
-            Text('注册码由服务器管理员提供，每个设备注册一次。')
+            Text('注册码由服务器自动分配并绑定本设备，不可修改。')
               .fontSize(12)
               .fontColor(TERMINAL_MUTED_TEXT_COLOR)
               .width('100%')
@@ -5675,7 +5721,7 @@ export struct ConnectionHome {
           .width('100%')
 
           Column({ space: 18 }) {
-            this.Field('服务器地址', this.draftAddress, '例如 8.153.174.88')
+            this.ReadonlyServerField(DEFAULT_GATEWAY_DISPLAY)
             Row({ space: 10 }) {
               Button(this.testingConnection ? '正在测试...' : '测试连接')
                 .height(36)
@@ -5705,7 +5751,7 @@ export struct ConnectionHome {
             this.Field('连接名称', this.draftName, '可选')
 
             Column({ space: 4 }) {
-              Text('注册码由服务器管理员提供，每个设备注册一次。')
+              Text('注册码由服务器自动分配并绑定本设备，不可修改。')
                 .fontSize(12)
                 .fontColor(TERMINAL_MUTED_TEXT_COLOR)
                 .width('100%')

@@ -117,17 +117,12 @@ export default function connectionModelTest() {
       expect(resolveConnectionCardTitle(saved)).assertEqual('172.16.1.186');
     });
 
-    it('allows no more than five saved connections', 0, () => {
-      const fourConnections: SavedConnection[] = [
-        connection('1', '2026-07-01T10:00:00+08:00'),
-        connection('2', '2026-07-01T10:01:00+08:00'),
-        connection('3', '2026-07-01T10:02:00+08:00'),
-        connection('4', '2026-07-01T10:03:00+08:00')
-      ];
-      const fiveConnections = fourConnections.concat([connection('5', '2026-07-01T10:04:00+08:00')]);
+    it('allows only one saved connection (fixed server)', 0, () => {
+      const none: SavedConnection[] = [];
+      const oneConnection: SavedConnection[] = [connection('1', '2026-07-01T10:00:00+08:00')];
 
-      expect(canAddConnection(fourConnections)).assertEqual(true);
-      expect(canAddConnection(fiveConnections)).assertEqual(false);
+      expect(canAddConnection(none)).assertEqual(true);
+      expect(canAddConnection(oneConnection)).assertEqual(false);
     });
 
     it('uses ip as the saved connection id', 0, () => {
@@ -356,17 +351,17 @@ export default function connectionModelTest() {
       incomplete.refreshTokenRef = '';
 
       expect(resolveConnectionReadinessError(incomplete))
-        .assertEqual('请先编辑连接，补全服务器地址和密钥。');
+        .assertEqual('尚未连接服务器，请点击连接。');
       expect(resolveConnectionReadinessError(connection('2', '2026-07-01T11:00:00+08:00')))
         .assertEqual('');
     });
 
-    it('returns field errors for missing add connection inputs', 0, () => {
+    it('has no required fields (server address fixed, code auto-assigned)', 0, () => {
       const result: ConnectionFormErrors = resolveConnectionFormErrors('', '', true);
 
-      expect(result.address).assertEqual('请填写服务器地址');
-      expect(result.privateKey).assertEqual('请填写密钥');
-      expect(result.hasError).assertEqual(true);
+      expect(result.address).assertEqual('');
+      expect(result.privateKey).assertEqual('');
+      expect(result.hasError).assertEqual(false);
     });
 
     it('does not require a separate port because server address defaults to gateway port', 0, () => {
