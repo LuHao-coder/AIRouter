@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { isAllowedFile } from './file-service.mjs';
 
 const DEFAULT_OPENCODE_COMMAND = 'opencode';
 const DEFAULT_OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
@@ -71,8 +72,6 @@ const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
 const SESSION_TITLE_MAX_LENGTH = 20;
 
 // 会被登记的产出文件扩展名（与 file-service 白名单一致）。
-const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
-
 /**
  * 从会话消息 parts 中提取“产出/改动的文件路径”。
  * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
@@ -192,7 +191,7 @@ function extractPathTokens(text) {
   const results = [];
   for (const raw of tokens) {
     const token = raw.replace(/[.,:;]+$/, '');
-    if (token.length > 0 && token.length < 1024 && ALLOWED_FILE_EXT_RE.test(token)) {
+    if (token.length > 0 && token.length < 1024 && isAllowedFile(token)) {
       results.push(token);
     }
   }

@@ -29,6 +29,7 @@ import {
   resolveFilesRoot,
   deviceWorkspace,
   isAllowedFile,
+  mimeTypeForFile,
 } from './file-service.mjs';
 import {
   saveDeviceSession,
@@ -83,20 +84,6 @@ function bearerToken(request) {
   const header = request.headers.authorization ?? '';
   if (!header.startsWith('Bearer ')) return '';
   return header.substring('Bearer '.length);
-}
-
-const MIME_TYPES = {
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.pdf': 'application/pdf',
-  '.md': 'text/markdown; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.zip': 'application/zip'
-};
-
-function mimeTypeForFile(target) {
-  return MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
 }
 
 function normalizeResumeCwd(value) {

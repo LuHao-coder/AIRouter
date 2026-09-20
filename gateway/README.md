@@ -53,7 +53,9 @@ opencode 实际在 `OPENCODE_WORKDIR`（如 `/root`）下读写文件，且不�
 （`POST /session` 不支持指定 directory）。因此文件隔离采用**登记式归属**：
 
 - 会话产出的文件路径记录在 SQLite `session_files(thread_id → device_id)`，随会话归属到设备。
-- `GET /api/files` 只列**本设备会话登记过**的文件（按 `name` 去重、白名单扩展名、存在校验）。
+- `GET /api/files` 只列**本设备会话登记过**的文件（按 `name` 去重、支持的类型过滤、存在校验）。
+  支持的类型：文档（pdf/doc/docx/xls/xlsx/ppt/pptx/txt/md/rtf/csv/odt/ods/odp）、图片（png/jpg/jpeg/gif/bmp/webp/svg/ico/tif/tiff/heic/avif）、音频（mp3/wav/m4a/aac/flac/ogg/opus）、视频（mp4/m4v/mov/webm/mkv/avi）、压缩包（zip/rar/7z/tar/gz/tgz/bz2/xz）、文本/代码/配置（json/xml/yaml/yml/html/htm/css/js/mjs/cjs/ts/jsx/tsx/py/java/c/cpp/h/hpp/go/rs/rb/php/kt/swift/sh/bat/ps1/sql/log/ini/conf/toml/properties/vue/svelte）。
+  扩展名定义见 `gateway/file-service.mjs`（`MIME_TYPES`，`ALLOWED_EXTENSIONS` 由此派生）。
 - `GET /api/files/{name}/download` 必须**精确命中**本设备登记记录，否则 404——天然防越权与路径穿越。
 - 归属维度是 **deviceId**（同一设备多个注册码/多次重装都归同一设备）。
 - 物理文件仍在共享目录；隔离在“登记 + 接口”层，非物理层。

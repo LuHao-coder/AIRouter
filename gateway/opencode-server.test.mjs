@@ -166,7 +166,7 @@ describe('opencode server adapter', () => {
       }
     ]);
 
-    assert.deepEqual(files.sort(), ['/root/总结.md', '/root/报告.docx']);
+    assert.deepEqual(files.sort(), ['/root/总结.md', '/root/报告.docx', 'gen.py']);
   });
 
   it('extracts file paths from a session diff payload', () => {

@@ -148,39 +148,104 @@ const RESUME_MD_BLOCK_DIVIDER: string = 'divider';
 const RESUME_MD_BLOCK_PARAGRAPH: string = 'paragraph';
 const RESUME_AWAIT_REPLY_TIMEOUT_MS: number = 5 * 60 * 1000;
 
+const MIME_BY_EXTENSION: Map<string, string> = new Map<string, string>([
+  // 文档
+  ['.pdf', 'application/pdf'],
+  ['.doc', 'application/msword'],
+  ['.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['.xls', 'application/vnd.ms-excel'],
+  ['.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['.ppt', 'application/vnd.ms-powerpoint'],
+  ['.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['.txt', 'text/plain'],
+  ['.md', 'text/markdown'],
+  ['.rtf', 'application/rtf'],
+  ['.csv', 'text/csv'],
+  ['.odt', 'application/vnd.oasis.opendocument.text'],
+  ['.ods', 'application/vnd.oasis.opendocument.spreadsheet'],
+  ['.odp', 'application/vnd.oasis.opendocument.presentation'],
+  // 图片
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.bmp', 'image/bmp'],
+  ['.webp', 'image/webp'],
+  ['.svg', 'image/svg+xml'],
+  ['.ico', 'image/x-icon'],
+  ['.tif', 'image/tiff'],
+  ['.tiff', 'image/tiff'],
+  ['.heic', 'image/heic'],
+  ['.avif', 'image/avif'],
+  // 音频
+  ['.mp3', 'audio/mpeg'],
+  ['.wav', 'audio/wav'],
+  ['.m4a', 'audio/mp4'],
+  ['.aac', 'audio/aac'],
+  ['.flac', 'audio/flac'],
+  ['.ogg', 'audio/ogg'],
+  ['.opus', 'audio/ogg'],
+  // 视频
+  ['.mp4', 'video/mp4'],
+  ['.m4v', 'video/x-m4v'],
+  ['.mov', 'video/quicktime'],
+  ['.webm', 'video/webm'],
+  ['.mkv', 'video/x-matroska'],
+  ['.avi', 'video/x-msvideo'],
+  // 压缩包
+  ['.zip', 'application/zip'],
+  ['.rar', 'application/vnd.rar'],
+  ['.7z', 'application/x-7z-compressed'],
+  ['.tar', 'application/x-tar'],
+  ['.gz', 'application/gzip'],
+  ['.tgz', 'application/gzip'],
+  ['.bz2', 'application/x-bzip2'],
+  ['.xz', 'application/x-xz'],
+  // 文本 / 代码 / 配置
+  ['.json', 'application/json'],
+  ['.xml', 'application/xml'],
+  ['.yaml', 'text/yaml'],
+  ['.yml', 'text/yaml'],
+  ['.html', 'text/html'],
+  ['.htm', 'text/html'],
+  ['.css', 'text/css'],
+  ['.js', 'text/javascript'],
+  ['.mjs', 'text/javascript'],
+  ['.cjs', 'text/javascript'],
+  ['.ts', 'text/plain'],
+  ['.jsx', 'text/plain'],
+  ['.tsx', 'text/plain'],
+  ['.py', 'text/x-python'],
+  ['.java', 'text/x-java-source'],
+  ['.c', 'text/x-c'],
+  ['.cpp', 'text/x-c'],
+  ['.h', 'text/x-c'],
+  ['.hpp', 'text/x-c'],
+  ['.go', 'text/x-go'],
+  ['.rs', 'text/x-rust'],
+  ['.rb', 'text/x-ruby'],
+  ['.php', 'text/x-php'],
+  ['.kt', 'text/plain'],
+  ['.swift', 'text/plain'],
+  ['.sh', 'text/x-sh'],
+  ['.bat', 'text/plain'],
+  ['.ps1', 'text/plain'],
+  ['.sql', 'text/x-sql'],
+  ['.log', 'text/plain'],
+  ['.ini', 'text/plain'],
+  ['.conf', 'text/plain'],
+  ['.toml', 'text/plain'],
+  ['.properties', 'text/plain'],
+  ['.vue', 'text/plain'],
+  ['.svelte', 'text/plain']
+]);
+
 function resolveMimeType(fileName: string): string {
   const lower = fileName.toLowerCase();
-  if (lower.endsWith('.pptx')) {
-    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-  }
-  if (lower.endsWith('.ppt')) {
-    return 'application/vnd.ms-powerpoint';
-  }
-  if (lower.endsWith('.docx')) {
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  }
-  if (lower.endsWith('.doc')) {
-    return 'application/msword';
-  }
-  if (lower.endsWith('.xlsx')) {
-    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  }
-  if (lower.endsWith('.xls')) {
-    return 'application/vnd.ms-excel';
-  }
-  if (lower.endsWith('.pdf')) {
-    return 'application/pdf';
-  }
-  if (lower.endsWith('.md')) {
-    return 'text/markdown';
-  }
-  if (lower.endsWith('.txt')) {
-    return 'text/plain';
-  }
-  if (lower.endsWith('.zip')) {
-    return 'application/zip';
-  }
-  return 'application/octet-stream';
+  const dotIndex = lower.lastIndexOf('.');
+  const extension = dotIndex >= 0 ? lower.substring(dotIndex) : '';
+  const found = MIME_BY_EXTENSION.get(extension);
+  return found !== undefined ? found : 'application/octet-stream';
 }
 
 function emptyResumeSession(): ResumeSession {
