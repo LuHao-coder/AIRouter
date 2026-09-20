@@ -2359,39 +2359,104 @@ const RESUME_MD_BLOCK_DIVIDER: string = 'divider';
 const RESUME_MD_BLOCK_PARAGRAPH: string = 'paragraph';
 const RESUME_AWAIT_REPLY_TIMEOUT_MS: number = 5 * 60 * 1000;
 
+const MIME_BY_EXTENSION: Map<string, string> = new Map<string, string>([
+  // 文档
+  ['.pdf', 'application/pdf'],
+  ['.doc', 'application/msword'],
+  ['.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['.xls', 'application/vnd.ms-excel'],
+  ['.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['.ppt', 'application/vnd.ms-powerpoint'],
+  ['.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['.txt', 'text/plain'],
+  ['.md', 'text/markdown'],
+  ['.rtf', 'application/rtf'],
+  ['.csv', 'text/csv'],
+  ['.odt', 'application/vnd.oasis.opendocument.text'],
+  ['.ods', 'application/vnd.oasis.opendocument.spreadsheet'],
+  ['.odp', 'application/vnd.oasis.opendocument.presentation'],
+  // 图片
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.bmp', 'image/bmp'],
+  ['.webp', 'image/webp'],
+  ['.svg', 'image/svg+xml'],
+  ['.ico', 'image/x-icon'],
+  ['.tif', 'image/tiff'],
+  ['.tiff', 'image/tiff'],
+  ['.heic', 'image/heic'],
+  ['.avif', 'image/avif'],
+  // 音频
+  ['.mp3', 'audio/mpeg'],
+  ['.wav', 'audio/wav'],
+  ['.m4a', 'audio/mp4'],
+  ['.aac', 'audio/aac'],
+  ['.flac', 'audio/flac'],
+  ['.ogg', 'audio/ogg'],
+  ['.opus', 'audio/ogg'],
+  // 视频
+  ['.mp4', 'video/mp4'],
+  ['.m4v', 'video/x-m4v'],
+  ['.mov', 'video/quicktime'],
+  ['.webm', 'video/webm'],
+  ['.mkv', 'video/x-matroska'],
+  ['.avi', 'video/x-msvideo'],
+  // 压缩包
+  ['.zip', 'application/zip'],
+  ['.rar', 'application/vnd.rar'],
+  ['.7z', 'application/x-7z-compressed'],
+  ['.tar', 'application/x-tar'],
+  ['.gz', 'application/gzip'],
+  ['.tgz', 'application/gzip'],
+  ['.bz2', 'application/x-bzip2'],
+  ['.xz', 'application/x-xz'],
+  // 文本 / 代码 / 配置
+  ['.json', 'application/json'],
+  ['.xml', 'application/xml'],
+  ['.yaml', 'text/yaml'],
+  ['.yml', 'text/yaml'],
+  ['.html', 'text/html'],
+  ['.htm', 'text/html'],
+  ['.css', 'text/css'],
+  ['.js', 'text/javascript'],
+  ['.mjs', 'text/javascript'],
+  ['.cjs', 'text/javascript'],
+  ['.ts', 'text/plain'],
+  ['.jsx', 'text/plain'],
+  ['.tsx', 'text/plain'],
+  ['.py', 'text/x-python'],
+  ['.java', 'text/x-java-source'],
+  ['.c', 'text/x-c'],
+  ['.cpp', 'text/x-c'],
+  ['.h', 'text/x-c'],
+  ['.hpp', 'text/x-c'],
+  ['.go', 'text/x-go'],
+  ['.rs', 'text/x-rust'],
+  ['.rb', 'text/x-ruby'],
+  ['.php', 'text/x-php'],
+  ['.kt', 'text/plain'],
+  ['.swift', 'text/plain'],
+  ['.sh', 'text/x-sh'],
+  ['.bat', 'text/plain'],
+  ['.ps1', 'text/plain'],
+  ['.sql', 'text/x-sql'],
+  ['.log', 'text/plain'],
+  ['.ini', 'text/plain'],
+  ['.conf', 'text/plain'],
+  ['.toml', 'text/plain'],
+  ['.properties', 'text/plain'],
+  ['.vue', 'text/plain'],
+  ['.svelte', 'text/plain']
+]);
+
 function resolveMimeType(fileName: string): string {
   const lower = fileName.toLowerCase();
-  if (lower.endsWith('.pptx')) {
-    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-  }
-  if (lower.endsWith('.ppt')) {
-    return 'application/vnd.ms-powerpoint';
-  }
-  if (lower.endsWith('.docx')) {
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  }
-  if (lower.endsWith('.doc')) {
-    return 'application/msword';
-  }
-  if (lower.endsWith('.xlsx')) {
-    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  }
-  if (lower.endsWith('.xls')) {
-    return 'application/vnd.ms-excel';
-  }
-  if (lower.endsWith('.pdf')) {
-    return 'application/pdf';
-  }
-  if (lower.endsWith('.md')) {
-    return 'text/markdown';
-  }
-  if (lower.endsWith('.txt')) {
-    return 'text/plain';
-  }
-  if (lower.endsWith('.zip')) {
-    return 'application/zip';
-  }
-  return 'application/octet-stream';
+  const dotIndex = lower.lastIndexOf('.');
+  const extension = dotIndex >= 0 ? lower.substring(dotIndex) : '';
+  const found = MIME_BY_EXTENSION.get(extension);
+  return found !== undefined ? found : 'application/octet-stream';
 }
 
 function emptyResumeSession(): ResumeSession {
@@ -9155,7 +9220,100 @@ export function cleanupExpiredNonces() {
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const ALLOWED_EXTENSIONS = new Set(['.pptx', '.docx', '.xlsx', '.pdf', '.md', '.txt', '.zip']);
+// 支持的文件类型（扩展名 → MIME）。ALLOWED_EXTENSIONS 由此派生，保持单一来源。
+const MIME_TYPES = {
+  // 文档
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.rtf': 'application/rtf',
+  '.csv': 'text/csv; charset=utf-8',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.odp': 'application/vnd.oasis.opendocument.presentation',
+  // 图片
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.heic': 'image/heic',
+  '.avif': 'image/avif',
+  // 音频
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  // 视频
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  // 压缩包
+  '.zip': 'application/zip',
+  '.rar': 'application/vnd.rar',
+  '.7z': 'application/x-7z-compressed',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip',
+  '.tgz': 'application/gzip',
+  '.bz2': 'application/x-bzip2',
+  '.xz': 'application/x-xz',
+  // 文本 / 代码 / 配置
+  '.json': 'application/json; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.yaml': 'text/yaml; charset=utf-8',
+  '.yml': 'text/yaml; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.cjs': 'text/javascript; charset=utf-8',
+  '.ts': 'text/plain; charset=utf-8',
+  '.jsx': 'text/plain; charset=utf-8',
+  '.tsx': 'text/plain; charset=utf-8',
+  '.py': 'text/x-python; charset=utf-8',
+  '.java': 'text/x-java-source; charset=utf-8',
+  '.c': 'text/x-c; charset=utf-8',
+  '.cpp': 'text/x-c; charset=utf-8',
+  '.h': 'text/x-c; charset=utf-8',
+  '.hpp': 'text/x-c; charset=utf-8',
+  '.go': 'text/x-go; charset=utf-8',
+  '.rs': 'text/x-rust; charset=utf-8',
+  '.rb': 'text/x-ruby; charset=utf-8',
+  '.php': 'text/x-php; charset=utf-8',
+  '.kt': 'text/plain; charset=utf-8',
+  '.swift': 'text/plain; charset=utf-8',
+  '.sh': 'text/x-sh; charset=utf-8',
+  '.bat': 'text/plain; charset=utf-8',
+  '.ps1': 'text/plain; charset=utf-8',
+  '.sql': 'text/x-sql; charset=utf-8',
+  '.log': 'text/plain; charset=utf-8',
+  '.ini': 'text/plain; charset=utf-8',
+  '.conf': 'text/plain; charset=utf-8',
+  '.toml': 'text/plain; charset=utf-8',
+  '.properties': 'text/plain; charset=utf-8',
+  '.vue': 'text/plain; charset=utf-8',
+  '.svelte': 'text/plain; charset=utf-8'
+};
+
+const ALLOWED_EXTENSIONS = new Set(Object.keys(MIME_TYPES));
 
 export function resolveFilesRoot(env = process.env) {
   return env.FILES_ROOT?.trim() || env.OPENCODE_WORKDIR?.trim() || '';
@@ -9180,8 +9338,13 @@ export function isAllowedFile(name) {
   const ext = path.extname(name).toLowerCase();
   return ALLOWED_EXTENSIONS.has(ext);
 }
+
+export function mimeTypeForFile(name) {
+  return MIME_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { isAllowedFile } from './file-service.mjs';
 
 const DEFAULT_OPENCODE_COMMAND = 'opencode';
 const DEFAULT_OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
@@ -9253,8 +9416,6 @@ const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
 const SESSION_TITLE_MAX_LENGTH = 20;
 
 // 会被登记的产出文件扩展名（与 file-service 白名单一致）。
-const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
-
 /**
  * 从会话消息 parts 中提取“产出/改动的文件路径”。
  * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
@@ -9374,7 +9535,7 @@ function extractPathTokens(text) {
   const results = [];
   for (const raw of tokens) {
     const token = raw.replace(/[.,:;]+$/, '');
-    if (token.length > 0 && token.length < 1024 && ALLOWED_FILE_EXT_RE.test(token)) {
+    if (token.length > 0 && token.length < 1024 && isAllowedFile(token)) {
       results.push(token);
     }
   }
@@ -9977,6 +10138,7 @@ import {
   resolveFilesRoot,
   deviceWorkspace,
   isAllowedFile,
+  mimeTypeForFile,
 } from './file-service.mjs';
 import {
   saveDeviceSession,
@@ -10031,20 +10193,6 @@ function bearerToken(request) {
   const header = request.headers.authorization ?? '';
   if (!header.startsWith('Bearer ')) return '';
   return header.substring('Bearer '.length);
-}
-
-const MIME_TYPES = {
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.pdf': 'application/pdf',
-  '.md': 'text/markdown; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.zip': 'application/zip'
-};
-
-function mimeTypeForFile(target) {
-  return MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
 }
 
 function normalizeResumeCwd(value) {
