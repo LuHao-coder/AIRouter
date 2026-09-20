@@ -52,57 +52,6 @@ export interface VerifyRequest {
   deviceId: string;
   nonce: string;
   signature: string;
-==== 后段第 1 页 ====
-
-  return messages.map((message, index) => {
-    const info = message?.info ?? {};
-    const messageId = normalizeString(info.id) || `message-${index + 1}`;
-    const role = normalizeRole(info.role);
-    const status = resolveMessageStatus(info);
-    const turn = {
-      id: messageId,
-      status,
-      startedAt: timestampToIso(info.time?.created),
-      completedAt: timestampToIso(info.time?.completed),
-      items: Array.isArray(message?.parts) ? message.parts
-        .map((part, partIndex) => mapOpenCodePartToResumeContent(messageId, role, part, partIndex))
-        .filter(Boolean) : []
-    };
-    return turn;
-  }).filter((turn) => turn.items.length > 0 || isActiveStatus(turn.status));
-}
-
-export function mapOpenCodeSessionToResumeSession(session, messages = []) {
-  const item = mapOpenCodeSessionToResumeItem(session);
-  const turns = mapOpenCodeMessagesToResumeTurns(messages);
-  const running = turns.some((turn) => isActiveStatus(turn.status));
-
-  return {
-    threadId: item.id,
-    title: item.title,
-    cwd: item.subtitle,
-    status: running ? 'running' : item.status,
-    turns
-  };
-}
-
-// 会把文件写入磁盘的工具（read 之类的只读工具不计入）。
-const FILE_PRODUCING_TOOLS = new Set([
-  'write', 'edit', 'patch', 'apply_patch', 'multiedit', 'create', 'write_file', 'str_replace_editor'
-]);
-
-// shell 类工具：需从命令/输出里扫文件路径（bash 直接写文件不会被上面识别）。
-const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
-
-// 会话兜底命名：取首条消息前 N 个字符。
-const SESSION_TITLE_MAX_LENGTH = 20;
-
-// 会被登记的产出文件扩展名（与 file-service 白名单一致）。
-const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
-
-/**
- * 从会话消息 parts 中提取“产出/改动的文件路径”。
- * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
 ==== 第 2 页 ====
 }
 
@@ -154,57 +103,6 @@ export interface SendResumeMessageRequest {
 
 export interface ResumeMutationRequest {
   baseUrl: string;
-==== 后段第 2 页 ====
- *
- * 覆盖：
- * - `file` part 的 filename/path
- * - 写文件类工具（write/edit/patch…）input/metadata 中含 file/path 的字段
- * - bash/shell 工具的命令与输出中以白名单扩展名结尾的路径（覆盖 `cat > x.docx`、脚本产出等）
- */
-export function extractFilePathsFromMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  const paths = new Set();
-  const add = (value) => {
-    const path = normalizeString(value);
-    if (path.length > 0) {
-      paths.add(path);
-    }
-  };
-
-  for (const message of messages) {
-    const parts = Array.isArray(message?.parts) ? message.parts : [];
-    for (const part of parts) {
-      const type = normalizeString(part?.type);
-      if (type === 'file') {
-        add(part?.filename);
-        add(part?.path);
-        continue;
-      }
-      if (type !== 'tool') {
-        continue;
-      }
-
-      const toolName = normalizeString(part?.tool).toLowerCase();
-      const state = part?.state ?? {};
-
-      if (FILE_PRODUCING_TOOLS.has(toolName)) {
-        // 不同工具/版本字段名不一（filePath / file_path / path / filename …）。
-        for (const value of pickPathLikeValues(state.input)) {
-          add(value);
-        }
-        for (const value of pickPathLikeValues(state.metadata)) {
-          add(value);
-        }
-      }
-
-      // shell 类工具：从命令/输出里扫出以白名单扩展名结尾的路径（覆盖 bash/脚本产物）。
-      if (SHELL_TOOLS.has(toolName)) {
-        for (const value of collectStringValues(state.input)) {
-          for (const token of extractPathTokens(value)) {
-            add(token);
 ==== 第 3 页 ====
   accessToken: string;
   threadId: string;
@@ -256,57 +154,6 @@ export interface ResumeTurn {
   id: string;
   status: string;
   startedAt: string;
-==== 后段第 3 页 ====
-          }
-        }
-        for (const value of collectStringValues(state.metadata)) {
-          for (const token of extractPathTokens(value)) {
-            add(token);
-          }
-        }
-        for (const token of extractPathTokens(normalizeString(state.output))) {
-          add(token);
-        }
-      }
-    }
-  }
-
-  return Array.from(paths);
-}
-
-/** 从 `/session/:id/diff` 的返回中提取文件路径（字段名未知，做通用兜底）。 */
-export function extractFilePathsFromDiff(diff) {
-  if (!Array.isArray(diff)) {
-    return [];
-  }
-  const paths = new Set();
-  const add = (value) => {
-    const path = normalizeString(value);
-    if (path.length > 0) {
-      paths.add(path);
-    }
-  };
-  for (const entry of diff) {
-    if (!entry || typeof entry !== 'object') {
-      continue;
-    }
-    add(entry.file);
-    add(entry.path);
-    add(entry.filename);
-    for (const value of pickPathLikeValues(entry)) {
-      add(value);
-    }
-    for (const value of collectStringValues(entry)) {
-      for (const token of extractPathTokens(value)) {
-        add(token);
-      }
-    }
-  }
-  return Array.from(paths);
-}
-
-/** 收集对象中所有字符串值（一层）。 */
-function collectStringValues(source) {
 ==== 第 4 页 ====
   completedAt: string;
   items: ResumeContentItem[];
@@ -358,57 +205,6 @@ export interface GatewayBinaryResponse {
   statusCode: number;
   body: ArrayBuffer;
 }
-==== 后段第 4 页 ====
-  if (!source || typeof source !== 'object') {
-    return [];
-  }
-  return Object.values(source).filter((value) => typeof value === 'string');
-}
-
-/** 从任意文本里提取“以白名单扩展名结尾”的路径 token。 */
-function extractPathTokens(text) {
-  const value = normalizeString(text);
-  if (value.length === 0) {
-    return [];
-  }
-  const tokens = value.split(/[\s"'`|<>,;()[\]{}]+/);
-  const results = [];
-  for (const raw of tokens) {
-    const token = raw.replace(/[.,:;]+$/, '');
-    if (token.length > 0 && token.length < 1024 && ALLOWED_FILE_EXT_RE.test(token)) {
-      results.push(token);
-    }
-  }
-  return results;
-}
-
-function pickPathLikeValues(source) {
-  if (!source || typeof source !== 'object') {
-    return [];
-  }
-  const values = [];
-  for (const [key, value] of Object.entries(source)) {
-    if (typeof value === 'string' && value.length > 0 && value.length < 1024 && /file|path/i.test(key)) {
-      values.push(value);
-    }
-  }
-  return values;
-}
-
-export class OpenCodeServerClient {
-  constructor(options = {}) {
-    this.url = stripTrailingSlash(options.url ?? process.env.OPENCODE_SERVER_URL ?? DEFAULT_OPENCODE_SERVER_URL);
-    this.command = options.command ?? process.env.OPENCODE_COMMAND ?? DEFAULT_OPENCODE_COMMAND;
-    this.workdir = normalizeString(options.workdir ?? process.env.OPENCODE_WORKDIR ?? process.env.HOME ?? homedir()) ||
-      process.cwd();
-    this.process = null;
-    this.fetchImpl = options.fetchImpl ?? fetch;
-    this.spawnServer = options.spawnServer ?? spawn;
-    this.platform = options.platform ?? process.platform;
-    this.runCommand = options.runCommand ?? ((args) => runCommand(this.spawnServer, this.command, args, {
-      cwd: this.workdir,
-      platform: this.platform
-    }));
 ==== 第 5 页 ====
 
 export interface GatewayTransport {
@@ -460,57 +256,6 @@ interface RegisterResponseBody {
   registrationCode?: string;
 }
 
-==== 后段第 5 页 ====
-    this.now = options.now ?? Date.now;
-    this.stderr = '';
-    this.startupError = null;
-    this.sessionsCacheTtlMs = options.sessionsCacheTtlMs ?? SESSIONS_CACHE_TTL_MS;
-    this.sessionsCache = new Map();
-  }
-
-  async listResumes(options = {}) {
-    const limit = options.limit ?? 20;
-    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
-    const rows = await this.loadSessionRows(normalizedLimit);
-    const sessions = rows.map(mapOpenCodeDbSessionToSession);
-    return sessions
-      .filter((session) => !session?.time?.archived)
-      .sort((left, right) => Number(right?.time?.updated || 0) - Number(left?.time?.updated || 0))
-      .slice(0, normalizedLimit)
-      .map(mapOpenCodeSessionToResumeItem);
-  }
-
-  /** 带短 TTL 缓存地读取会话列表，避免每次请求都 spawn `opencode db`。 */
-  async loadSessionRows(limit) {
-    const cached = this.sessionsCache.get(limit);
-    const now = this.now();
-    if (cached && now - cached.at < this.sessionsCacheTtlMs) {
-      return cached.rows;
-    }
-    const rows = await this.querySessions(limit);
-    this.sessionsCache.set(limit, { at: now, rows });
-    return rows;
-  }
-
-  invalidateSessionsCache() {
-    this.sessionsCache.clear();
-  }
-
-  async readResume(options = {}) {
-    const threadId = requireThreadId(options.threadId);
-    const directory = normalizeString(options.directory);
-    const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
-    const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`, { directory });
-    const messageFiles = extractFilePathsFromMessages(messages);
-    // 会话 diff 能覆盖 bash/脚本产出的文件；失败时静默降级为仅用消息解析结果。
-    const diffFiles = await this.readSessionDiff(threadId, directory);
-    return {
-      ...mapOpenCodeSessionToResumeSession(session, messages),
-      files: Array.from(new Set([...messageFiles, ...diffFiles]))
-    };
-  }
-
-  async readSessionDiff(threadId, directory) {
 ==== 第 6 页 ====
 interface ChallengeResponseBody {
   nonce: string;
@@ -562,57 +307,6 @@ class SystemGatewayTransport implements GatewayTransport {
   constructor(caContent: string = '') {
     this.caContent = caContent;
     const timeoutCfg: rcp.Timeout = {
-==== 后段第 6 页 ====
-    try {
-      const diff = await this.request(`/session/${encodeURIComponent(threadId)}/diff`, {
-        directory,
-        timeout: 5000
-      });
-      return extractFilePathsFromDiff(diff);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async startResume(options = {}) {
-    // directory 决定 opencode 的项目/工作目录：不同设备各自的工作区。
-    const directory = normalizeString(options.directory) || normalizeString(options.cwd);
-    // 不复用目录当标题：让 opencode 按首句自动命名（未自动命名时由 sendResumeMessage 兜底）。
-    const session = await this.request('/session', {
-      method: 'POST',
-      body: {},
-      directory: directory !== '~' ? directory : ''
-    });
-    this.invalidateSessionsCache();
-    return mapOpenCodeSessionToResumeSession(session, []);
-  }
-
-  async sendResumeMessage(options = {}) {
-    const threadId = requireThreadId(options.threadId);
-    const message = normalizeString(options.message);
-    if (message.length === 0) {
-      throw new Error('message is required');
-    }
-
-    // prompt_async：发送即返回 204，不等待生成完成；结果由客户端轮询 /resume 获取（不阻塞、不取消生成）。
-    await this.request(`/session/${encodeURIComponent(threadId)}/prompt_async`, {
-      method: 'POST',
-      body: {
-        parts: [
-          {
-            type: 'text',
-            text: message
-          }
-        ]
-      },
-      directory: normalizeString(options.directory)
-    });
-
-    const session = await this.readResume({ threadId, directory: options.directory });
-
-    // 兜底命名：若 opencode 还没按首句命名（标题仍为空/就是 session id），用本条消息前 20 字命名。
-    if (isSessionTitleUnset(session.title, threadId)) {
-      const title = deriveSessionTitle(message);
 ==== 第 7 页 ====
       connectMs: 30000,
       transferMs: 30000
@@ -664,57 +358,6 @@ class SystemGatewayTransport implements GatewayTransport {
 
       return {
         statusCode: response.statusCode,
-==== 后段第 7 页 ====
-      if (title.length > 0) {
-        try {
-          await this.renameResume({ threadId, name: title, directory: normalizeString(options.directory) });
-          session.title = title;
-        } catch (error) {
-          console.error(`[opencode] 会话兜底命名失败: ${error instanceof Error ? error.message : error}`);
-        }
-      }
-    }
-
-    return session;
-  }
-
-  async archiveResume(options = {}) {
-    const threadId = requireThreadId(options.threadId);
-    const now = Number(this.now());
-    await this.runCommand([
-      'db',
-      `update session set time_archived = ${now}, time_updated = ${now} where id = '${escapeSqlLiteral(threadId)}'`
-    ]);
-    this.invalidateSessionsCache();
-  }
-
-  async renameResume(options = {}) {
-    const threadId = requireThreadId(options.threadId);
-    const name = normalizeString(options.name);
-    if (name.length === 0) {
-      throw new Error('name is required');
-    }
-
-    await this.request(`/session/${encodeURIComponent(threadId)}`, {
-      method: 'PATCH',
-      body: {
-        title: name
-      },
-      directory: normalizeString(options.directory)
-    });
-    this.invalidateSessionsCache();
-  }
-
-  async deleteResume(options = {}) {
-    const threadId = requireThreadId(options.threadId);
-    await this.runCommand(['session', 'delete', threadId]);
-    this.invalidateSessionsCache();
-  }
-
-  async querySessions(limit) {
-    const stdout = await this.runCommand([
-      'db',
-      `select id, title, slug, directory, path, time_created, time_updated, time_archived from session where time_archived is null order by time_updated desc limit ${limit}`,
 ==== 第 8 页 ====
         result: result
       };
@@ -766,57 +409,6 @@ export class HttpGatewayClient implements GatewayClient {
     const response = await this.transport.request(joinUrl(request.baseUrl, '/api/auth/register'), {
       method: 'POST',
       headers: {
-==== 后段第 8 页 ====
-      '--format',
-      'json'
-    ]);
-    const text = normalizeString(stdout);
-    return text.length > 0 ? JSON.parse(text) : [];
-  }
-
-  async request(path, options = {}) {
-    await this.ensureReady();
-
-    // opencode 按 `directory` 解析项目/工作目录；用它把不同设备隔离到各自工作区。
-    let target = `${this.url}${path}`;
-    if (normalizeString(options.directory).length > 0) {
-      const url = new URL(target);
-      url.searchParams.set('directory', normalizeString(options.directory));
-      target = url.toString();
-    }
-
-    const timeoutMs = options.timeout ?? 300000;
-    const response = await this.fetchImpl(target, {
-      method: options.method ?? 'GET',
-      headers: options.body !== undefined ? {
-        'content-type': 'application/json'
-      } : undefined,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-    if (!response?.ok) {
-      throw new Error(`opencode server request failed: ${response?.status ?? 'no response'}`);
-    }
-
-    const text = await response.text();
-    return text.trim().length > 0 ? JSON.parse(text) : {};
-  }
-
-  async ensureReady() {
-    if (await this.isReady()) {
-      return;
-    }
-
-    await this.startServer();
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < SERVER_READY_TIMEOUT_MS) {
-      if (await this.isReady()) {
-        return;
-      }
-      if (!this.process) {
-        if (this.startupError) {
-          throw this.startupError;
-        }
 ==== 第 9 页 ====
         contentType: 'application/json',
         authorization: ''
@@ -868,57 +460,6 @@ export class HttpGatewayClient implements GatewayClient {
       method: 'POST',
       headers: {
         contentType: 'application/json',
-==== 后段第 9 页 ====
-        throw new Error(this.describeStartupError('opencode serve exited before ready'));
-      }
-      await wait(SERVER_READY_INTERVAL_MS);
-    }
-
-    throw new Error(this.describeStartupError('Timed out waiting for opencode serve'));
-  }
-
-  async isReady() {
-    try {
-      const response = await this.fetchImpl(`${this.url}/session`);
-      return Boolean(response?.ok);
-    } catch (_error) {
-      return false;
-    }
-  }
-
-  async startServer() {
-    if (this.process) {
-      return;
-    }
-
-    const listenUrl = new URL(this.url);
-    const spawnOptions = {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      cwd: this.workdir
-    };
-    if (this.platform === 'win32') {
-      spawnOptions.shell = true;
-      spawnOptions.windowsHide = true;
-    }
-
-    const child = this.spawnServer(this.command, [
-      'serve',
-      '--hostname',
-      listenUrl.hostname,
-      '--port',
-      listenUrl.port || '4096',
-      '--print-logs'
-    ], spawnOptions);
-    this.process = child;
-    this.startupError = null;
-
-    child.stderr?.on('data', (chunk) => {
-      this.stderr += chunk.toString();
-      if (this.stderr.length > 4000) {
-        this.stderr = this.stderr.slice(-4000);
-      }
-    });
-
 ==== 第 10 页 ====
         authorization: ''
       },
@@ -970,57 +511,6 @@ export class HttpGatewayClient implements GatewayClient {
         refreshToken: request.refreshToken
       })
     });
-==== 后段第 10 页 ====
-    child.once('error', (error) => {
-      this.process = null;
-      this.startupError = error;
-    });
-
-    child.once('exit', () => {
-      this.process = null;
-    });
-  }
-
-  describeStartupError(message) {
-    const stderr = this.stderr.trim();
-    if (stderr.length === 0) {
-      return message;
-    }
-
-    return `${message}\n${stderr}`;
-  }
-}
-
-function mapOpenCodeDbSessionToSession(row) {
-  return {
-    id: row?.id,
-    title: row?.title,
-    slug: row?.slug,
-    directory: row?.directory,
-    path: row?.path,
-    time: {
-      created: row?.time_created,
-      updated: row?.time_updated,
-      archived: row?.time_archived
-    }
-  };
-}
-
-function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
-  const partId = normalizeString(part?.id) || `part-${partIndex + 1}`;
-  const type = normalizeString(part?.type) || 'part';
-
-  if (type === 'text') {
-    if (role !== 'user' && role !== 'assistant') {
-      return null;
-    }
-
-    return resumeContent(`${messageId}:${partId}`, role, 'message', part?.text, '');
-  }
-
-  // 工具调用 / 文件产物也映射为内容项，让“生成文件/调用工具”这类长任务在客户端有进度可看。
-  if (type === 'tool') {
-    const toolName = normalizeString(part?.tool) || 'tool';
 ==== 第 11 页 ====
     ensureSuccess(response);
 
@@ -1072,57 +562,6 @@ function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
     const response = await this.transport.request(url, {
       method: 'GET',
       headers: {
-==== 后段第 11 页 ====
-    const status = normalizeString(part?.state?.status);
-    const text = status.length > 0 ? `${toolName} · ${status}` : toolName;
-    return resumeContent(`${messageId}:${partId}`, 'tool', 'tool', text, status);
-  }
-
-  if (type === 'file') {
-    const filename = normalizeString(part?.filename) || normalizeString(part?.path) || 'file';
-    // 只展示文件名+后缀，不展示完整路径。
-    return resumeContent(`${messageId}:${partId}`, 'tool', 'file', baseName(filename), '');
-  }
-
-  return null;
-}
-
-function resumeContent(id, role, kind, text, status) {
-  const normalizedText = truncateText(normalizePartText(text));
-  if (normalizedText.length === 0) {
-    return null;
-  }
-
-  return {
-    id,
-    role,
-    kind,
-    text: normalizedText,
-    status
-  };
-}
-
-function normalizePartText(value) {
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(normalizePartText).filter(Boolean).join('\n');
-  }
-
-  if (value && typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-
-  return '';
-}
-
-function normalizeRole(role) {
-  if (role === 'assistant' || role === 'user' || role === 'tool' || role === 'system') {
-    return role;
-  }
-
 ==== 第 12 页 ====
         contentType: '',
         authorization: `Bearer ${request.accessToken}`
@@ -1174,57 +613,6 @@ function normalizeRole(role) {
       joinUrl(request.baseUrl, `${OPENCODE_RESUMES_PATH}/${encodeURIComponent(request.threadId)}/messages`),
       {
         method: 'POST',
-==== 后段第 12 页 ====
-  return 'system';
-}
-
-function resolveMessageStatus(info) {
-  if (info?.error) {
-    return 'error';
-  }
-
-  if (info?.role === 'assistant' && !info?.time?.completed) {
-    return 'running';
-  }
-
-  return 'completed';
-}
-
-function isActiveStatus(status) {
-  return status === 'running' || status === 'inProgress' || status === 'in_progress' || status === 'queued';
-}
-
-function timestampToIso(value) {
-  const timestamp = Number(value || 0);
-  return timestamp > 0 ? new Date(timestamp).toISOString() : '';
-}
-
-function truncateText(value) {
-  if (value.length <= MAX_PART_TEXT_LENGTH) {
-    return value;
-  }
-
-  return `${value.slice(0, MAX_PART_TEXT_LENGTH)}\n...`;
-}
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-/** 只取路径的文件名部分（兼容 `/`、`\`）。 */
-function baseName(value) {
-  const text = normalizeString(value).replace(/\\/g, '/');
-  const index = text.lastIndexOf('/');
-  return index >= 0 ? text.slice(index + 1) : text;
-}
-
-/** 会话标题是否“未命名”（空 / 就是 session id / 形如 ses_xxx）。 */
-function isSessionTitleUnset(title, threadId) {
-  const value = normalizeString(title);
-  if (value.length === 0) {
-    return true;
-  }
-  if (value === normalizeString(threadId)) {
 ==== 第 13 页 ====
         headers: {
           contentType: 'application/json',
@@ -1276,57 +664,6 @@ function isSessionTitleUnset(title, threadId) {
     console.info(`[listFiles] 请求 URL: ${url}`);
     const response = await this.transport.request(url, {
       method: 'GET',
-==== 后段第 13 页 ====
-    return true;
-  }
-  return /^ses[_-]/i.test(value);
-}
-
-/** 兜底标题：取消息前 N 个字符（换行保留）。 */
-function deriveSessionTitle(message) {
-  const text = typeof message === 'string' ? message.replace(/\r\n/g, '\n').trim() : '';
-  return Array.from(text).slice(0, SESSION_TITLE_MAX_LENGTH).join('');
-}
-
-function requireThreadId(threadId) {
-  const normalized = normalizeString(threadId);
-  if (normalized.length === 0) {
-    throw new Error('threadId is required');
-  }
-
-  return normalized;
-}
-
-function stripTrailingSlash(value) {
-  return normalizeString(value).replace(/\/+$/, '');
-}
-
-function escapeSqlLiteral(value) {
-  return normalizeString(value).replace(/'/g, "''");
-}
-
-function runCommand(spawnCommand, command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const spawnOptions = {
-      cwd: options.cwd,
-      stdio: ['ignore', 'pipe', 'pipe']
-    };
-    if (options.platform === 'win32') {
-      spawnOptions.shell = true;
-      spawnOptions.windowsHide = true;
-    }
-
-    const child = spawnCommand(command, args, spawnOptions);
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout?.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.once('error', reject);
 ==== 第 14 页 ====
       headers: {
         contentType: '',
@@ -1378,57 +715,6 @@ export class MockGatewayClient implements GatewayClient {
       expiresIn: 900
     };
   }
-==== 后段第 14 页 ====
-    child.once('exit', (code) => {
-      if (code === 0) {
-        resolve(stdout);
-        return;
-      }
-
-      reject(new Error(`opencode command failed (${code}): ${stderr.trim()}`));
-    });
-  });
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-const CLEANUP_INTERVAL_MS = 60 * 1000;
-
-export class RateLimiter {
-  #windowMs;
-  #maxRequests;
-  #clients;
-  #cleanupTimer;
-
-  constructor(windowMs, maxRequests) {
-    this.#windowMs = windowMs;
-    this.#maxRequests = maxRequests;
-    this.#clients = new Map();
-
-    this.#cleanupTimer = setInterval(() => this.#cleanup(), CLEANUP_INTERVAL_MS);
-    if (this.#cleanupTimer.unref) {
-      this.#cleanupTimer.unref();
-    }
-  }
-
-  check(key) {
-    const now = Date.now();
-    const entry = this.#clients.get(key);
-
-    if (!entry || now >= entry.resetAt) {
-      this.#clients.set(key, { count: 1, resetAt: now + this.#windowMs });
-      return true;
-    }
-
-    if (entry.count >= this.#maxRequests) {
-      return false;
-    }
-
-    entry.count += 1;
-    return true;
-  }
-
 ==== 第 15 页 ====
 
   async challenge(request: ChallengeRequest): Promise<ChallengeResponse> {
@@ -1480,57 +766,6 @@ export class RateLimiter {
       threadId: 'thread-new',
       title: 'New OpenCode Resume',
       cwd: normalizeString(request.cwd) || DEFAULT_RESUME_CWD,
-==== 后段第 15 页 ====
-  reset(key) {
-    this.#clients.delete(key);
-  }
-
-  #cleanup() {
-    const now = Date.now();
-    for (const [key, entry] of this.#clients) {
-      if (now >= entry.resetAt) {
-        this.#clients.delete(key);
-      }
-    }
-  }
-}
-
-export function getClientIp(request) {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-
-  const realIp = request.headers['x-real-ip'];
-  if (realIp) {
-    return realIp.trim();
-  }
-
-  return request.socket?.remoteAddress ?? '';
-}
-
-const FIFTEEN_MINUTES = 15 * 60 * 1000;
-const FIVE_MINUTES = 5 * 60 * 1000;
-const ONE_HOUR = 60 * 60 * 1000;
-
-export const registerLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
-export const activateLimiter = new RateLimiter(FIVE_MINUTES, 3);
-export const challengeLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
-export const verifyLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
-export const refreshLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
-export const reregisterLimiter = new RateLimiter(ONE_HOUR, 3);
-import http from 'node:http';
-import https from 'node:https';
-import fs from 'node:fs';
-import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { OpenCodeServerClient } from './opencode-server.mjs';
-import {
-  verifyAccessToken,
-  ensureDeviceRegistrationCode,
-  createActivationChallenge,
-  verifyActivation,
-  createLoginChallenge,
 ==== 第 16 页 ====
       status: 'running',
       turns: []
@@ -1582,57 +817,6 @@ import {
       cwd: session.cwd,
       status: 'running',
       turns: session.turns.concat([
-==== 后段第 16 页 ====
-  verifyLogin,
-  refreshAccessToken,
-  reregisterDevice,
-  logoutDevice,
-  cleanupExpiredNonces,
-} from './auth.mjs';
-import {
-  registerLimiter,
-  activateLimiter,
-  challengeLimiter,
-  verifyLimiter,
-  refreshLimiter,
-  reregisterLimiter,
-  getClientIp,
-} from './rate-limiter.mjs';
-import {
-  resolveFilesRoot,
-  deviceWorkspace,
-  isAllowedFile,
-} from './file-service.mjs';
-import {
-  saveDeviceSession,
-  getDeviceSessionOwner,
-  listDeviceSessions,
-  deleteDeviceSession,
-  upsertSessionFile,
-  listSessionFileRecords,
-} from './db.mjs';
-
-const DEFAULT_HOST = '0.0.0.0';
-const DEFAULT_PORT = 8443;
-
-const PROJECT = {
-  id: 'codex-router',
-  name: 'AI Router',
-  defaultBranch: 'master',
-  status: 'ready',
-  permissions: ['task:create', 'task:read', 'task:write', 'diff:read', 'approval:review']
-};
-
-function jsonResponse(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    'content-type': 'application/json; charset=utf-8',
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
-    'access-control-allow-headers': 'authorization,content-type'
-  });
-  response.end(JSON.stringify(body));
-}
-
 ==== 第 17 页 ====
         {
           id: 'turn-mock-reply',
@@ -1684,57 +868,6 @@ function jsonResponse(response, statusCode, body) {
   async downloadFile(_request: DownloadFileRequest): Promise<DownloadedFile> {
     return {
       name: _request.fileName,
-==== 后段第 17 页 ====
-function errorResponse(response, statusCode, code, message) {
-  jsonResponse(response, statusCode, {
-    error: { code, message, requestId: `req_${randomUUID()}` }
-  });
-}
-
-function readJson(request) {
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk) => { raw += chunk; });
-    request.on('end', () => {
-      if (raw.trim().length === 0) { resolve({}); return; }
-      try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
-    });
-    request.on('error', reject);
-  });
-}
-
-function bearerToken(request) {
-  const header = request.headers.authorization ?? '';
-  if (!header.startsWith('Bearer ')) return '';
-  return header.substring('Bearer '.length);
-}
-
-const MIME_TYPES = {
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.pdf': 'application/pdf',
-  '.md': 'text/markdown; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.zip': 'application/zip'
-};
-
-function mimeTypeForFile(target) {
-  return MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
-}
-
-function normalizeResumeCwd(value) {
-  const cwd = typeof value === 'string' ? value.trim() : '';
-  return cwd.length > 0 ? cwd : '~';
-}
-
-function requireAuth(request, response) {
-  const token = bearerToken(request);
-  if (!token) {
-    errorResponse(response, 401, 'token_missing', 'Authorization token required');
-    return null;
-  }
 ==== 第 18 页 ====
       bytes: new ArrayBuffer(0)
     };
@@ -1786,57 +919,6 @@ function normalizeItems(value: ResumeContentItem[], turnId: string): ResumeConte
       kind: normalizeString(item.kind) || 'message',
       text: normalizeString(item.text),
       status: normalizeString(item.status)
-==== 后段第 18 页 ====
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    errorResponse(response, 401, 'token_expired', 'Token is expired or invalid');
-    return null;
-  }
-  return { deviceId: payload.sub };
-}
-
-/**
- * 会话归属校验：只有创建该会话的设备才能访问。非归属方返回 404（不泄漏会话是否存在）。
- */
-function requireThreadOwnership(response, deviceId, threadId) {
-  const owner = getDeviceSessionOwner(threadId);
-  if (!owner || owner !== deviceId) {
-    errorResponse(response, 404, 'session_not_found', 'Session not found');
-    return false;
-  }
-  return true;
-}
-
-/**
- * 把会话产出的文件路径登记到 session_files（按设备归属）。
- * 只登记位于 filesRoot 之下、扩展名白名单、且当前存在的文件。
- */
-function recordSessionFiles(deviceId, threadId, paths) {
-  if (!deviceId || !threadId || !Array.isArray(paths) || paths.length === 0) {
-    return;
-  }
-  const filesRoot = resolveFilesRoot();
-  if (!filesRoot) {
-    return;
-  }
-  const root = path.resolve(filesRoot);
-  for (const raw of paths) {
-    const candidate = typeof raw === 'string' ? raw.trim() : '';
-    if (candidate.length === 0) {
-      continue;
-    }
-    const absolute = path.resolve(path.isAbsolute(candidate) ? candidate : path.join(root, candidate));
-    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
-      continue;
-    }
-    if (!isAllowedFile(absolute)) {
-      continue;
-    }
-    let stats;
-    try {
-      stats = fs.statSync(absolute);
-    } catch (error) {
-      continue;
 ==== 第 19 页 ====
     };
     return normalized;
@@ -1888,57 +970,6 @@ export const DEFAULT_GATEWAY_SCHEME: string = 'https';
 export const DEFAULT_GATEWAY_HOST: string = '8.153.174.88';
 export const DEFAULT_GATEWAY_PORT: number = 8443;
 export const DEFAULT_GATEWAY_DISPLAY: string = `${DEFAULT_GATEWAY_HOST}:${DEFAULT_GATEWAY_PORT}`;
-==== 后段第 19 页 ====
-    }
-    if (!stats.isFile()) {
-      continue;
-    }
-    const name = path.relative(root, absolute).split(path.sep).join('/');
-    try {
-      upsertSessionFile(threadId, deviceId, absolute, name, stats.size, stats.mtime.toISOString());
-    } catch (error) {
-      console.error(`[gateway] 登记会话文件失败: ${error instanceof Error ? error.message : error}`);
-    }
-  }
-}
-
-function createGatewayHandler(options = {}) {
-  const tasks = new Map();
-  const opencodeClient = options.opencodeClient ?? new OpenCodeServerClient();
-
-  setInterval(() => {
-    cleanupExpiredNonces();
-  }, 60 * 1000).unref();
-
-  return async (request, response) => {
-    try {
-      const url = new URL(request.url ?? '/', 'http://localhost');
-
-      if (request.method === 'OPTIONS') {
-        jsonResponse(response, 204, {});
-        return;
-      }
-
-      // ─── Health ───
-      if (request.method === 'GET' && url.pathname === '/health') {
-        jsonResponse(response, 200, { status: 'ok', sessionName: 'opencode-main' });
-        return;
-      }
-
-      // ─── Auth: Register (get activation challenge) ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/register') {
-        const ip = getClientIp(request);
-        if (!registerLimiter.check(ip)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many registration attempts');
-          return;
-        }
-
-        const body = await readJson(request);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
-
-        if (!deviceId || !publicKey) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
 ==== 第 20 页 ====
 export const DEFAULT_GATEWAY_NAME: string = 'AIRouter';
 import { preferences } from '@kit.ArkData';
@@ -1990,57 +1021,6 @@ export async function getDeviceId(context: common.Context): Promise<string> {
 
   return newId;
 }
-==== 后段第 20 页 ====
-          return;
-        }
-
-        // 开放注册：首次注册时服务器为该设备随机分配注册码并绑定（此后不可更改/换绑）。
-        const registrationCode = ensureDeviceRegistrationCode(deviceId);
-        const challenge = createActivationChallenge(deviceId, publicKey);
-        jsonResponse(response, 200, { ...challenge, registrationCode });
-        return;
-      }
-
-      // ─── Auth: Activate (complete registration with signature) ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/activate') {
-        const body = await readJson(request);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        const activationToken = typeof body.activationToken === 'string' ? body.activationToken.trim() : '';
-        const signedChallenge = typeof body.signedChallenge === 'string' ? body.signedChallenge.trim() : '';
-
-        if (!deviceId || !activationToken || !signedChallenge) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId, activationToken, and signedChallenge are required');
-          return;
-        }
-
-        if (!activateLimiter.check(activationToken)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many activation attempts');
-          return;
-        }
-
-        const result = await verifyActivation(deviceId, activationToken, signedChallenge);
-        if (result.error) {
-          const statusMap = {
-            invalid_token: 400, device_mismatch: 403, token_used: 400,
-            token_expired: 400, no_public_key: 500, invalid_signature: 403
-          };
-          errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
-          return;
-        }
-
-        jsonResponse(response, 200, result);
-        return;
-      }
-
-      // ─── Auth: Challenge (get login nonce) ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/challenge') {
-        const body = await readJson(request);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-
-        if (!deviceId) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId is required');
-          return;
-        }
 ==== 第 21 页 ====
 import { huks } from '@kit.UniversalKeystoreKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -2092,57 +1072,6 @@ function buildEd25519SpkiDer(rawPublicKey: Uint8Array): Uint8Array {
     keyBytes = keyBytes.slice(1);
   }
 
-==== 后段第 21 页 ====
-
-        if (!challengeLimiter.check(deviceId)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many challenge requests');
-          return;
-        }
-
-        const result = createLoginChallenge(deviceId);
-        if (!result) {
-          errorResponse(response, 401, 'device_not_found', 'Device not registered or revoked');
-          return;
-        }
-
-        jsonResponse(response, 200, result);
-        return;
-      }
-
-      // ─── Auth: Verify (login with signature) ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/verify') {
-        const body = await readJson(request);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        const nonce = typeof body.nonce === 'string' ? body.nonce.trim() : '';
-        const signature = typeof body.signature === 'string' ? body.signature.trim() : '';
-
-        if (!deviceId || !nonce || !signature) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId, nonce, and signature are required');
-          return;
-        }
-
-        if (!verifyLimiter.check(deviceId)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many verification attempts');
-          return;
-        }
-
-        const result = await verifyLogin(deviceId, nonce, signature);
-        if (result.error) {
-          const statusMap = {
-            invalid_nonce: 400, device_mismatch: 403, nonce_used: 400,
-            nonce_expired: 400, device_not_found: 401, invalid_signature: 403
-          };
-          errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
-          return;
-        }
-
-        jsonResponse(response, 200, result);
-        return;
-      }
-
-      // ─── Auth: Refresh ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/refresh') {
-        const body = await readJson(request);
 ==== 第 22 页 ====
   const algorithmId = new Uint8Array([0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70]);
 
@@ -2194,57 +1123,6 @@ function getSignProperties(): huks.HuksParam[] {
       value: huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_SIGN
     }
   ];
-==== 后段第 22 页 ====
-        const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
-
-        if (!refreshToken) {
-          errorResponse(response, 400, 'invalid_request', 'refreshToken is required');
-          return;
-        }
-
-        if (!refreshLimiter.check(refreshToken)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many refresh attempts');
-          return;
-        }
-
-        const result = refreshAccessToken(refreshToken);
-        if (result.error) {
-          errorResponse(response, 401, result.error, result.error);
-          return;
-        }
-
-        jsonResponse(response, 200, result);
-        return;
-      }
-
-      // ─── Auth: Logout ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
-        const body = await readJson(request);
-        const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
-        if (refreshToken) {
-          logoutDevice(refreshToken);
-        }
-        jsonResponse(response, 200, { ok: true });
-        return;
-      }
-
-      // ─── Auth: Reregister ───
-      if (request.method === 'POST' && url.pathname === '/api/auth/reregister') {
-        const ip = getClientIp(request);
-        if (!reregisterLimiter.check(ip)) {
-          errorResponse(response, 429, 'rate_limited', 'Too many reregistration attempts');
-          return;
-        }
-
-        const body = await readJson(request);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
-        const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : '';
-        const mode = typeof body.mode === 'string' ? body.mode.trim() : 'reset';
-
-        if (!deviceId || !publicKey) {
-          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
-          return;
 ==== 第 23 页 ====
   return properties;
 }
@@ -2296,57 +1174,6 @@ export async function ensureDeviceKeyPair(): Promise<DeviceKeyPair> {
   if (cachedKeyPair !== null) {
     return cachedKeyPair;
   }
-==== 后段第 23 页 ====
-        }
-
-        // 注册码无需输入：沿用该设备首次注册时自动分配的码。
-        const result = await reregisterDevice(deviceId, publicKey, deviceName, mode);
-        if (result.error) {
-          errorResponse(response, 401, result.error, result.error);
-          return;
-        }
-
-        jsonResponse(response, 200, result);
-        return;
-      }
-
-      // ─── Auth: Me ───
-      if (request.method === 'GET' && url.pathname === '/api/auth/me') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-        jsonResponse(response, 200, {
-          deviceId: auth.deviceId,
-          sessionName: 'opencode-main',
-          registrationCode: ensureDeviceRegistrationCode(auth.deviceId)
-        });
-        return;
-      }
-
-      // ─── ICE Config ───
-      if (request.method === 'GET' && url.pathname === '/api/turn/ice-config') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const turnHost = process.env.COTURN_HOST ?? '127.0.0.1';
-        const turnPort = process.env.COTURN_PORT ?? '3478';
-        const turnUser = process.env.COTURN_USER ?? 'codexrouter';
-        const turnPass = process.env.COTURN_PASS ?? '';
-
-        const iceServers = [{ urls: `stun:${turnHost}:${turnPort}` }];
-        if (turnPass.length > 0) {
-          iceServers.push({ urls: `turn:${turnHost}:${turnPort}`, username: turnUser, credential: turnPass });
-        }
-        jsonResponse(response, 200, { iceServers });
-        return;
-      }
-
-      // ─── Projects ───
-      if (request.method === 'GET' && url.pathname === '/api/projects') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-        jsonResponse(response, 200, { items: [PROJECT] });
-        return;
-      }
 ==== 第 24 页 ====
 
   let rawKey: Uint8Array;
@@ -2397,57 +1224,6 @@ function cipherParams(purpose: huks.HuksKeyPurpose, nonce: Uint8Array | null, ta
     { tag: huks.HuksTag.HUKS_TAG_PADDING, value: huks.HuksKeyPadding.HUKS_PADDING_NONE },
     { tag: huks.HuksTag.HUKS_TAG_BLOCK_MODE, value: huks.HuksCipherMode.HUKS_MODE_GCM }
   ];
-
-==== 后段第 24 页 ====
-
-      // ─── OpenCode Resumes ───
-      if (request.method === 'GET' && url.pathname === '/api/opencode/resumes') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const limit = Number(url.searchParams.get('limit') ?? '20');
-        const allItems = await opencodeClient.listResumes({ limit: 1000 });
-        // 归属持久化在 SQLite，gateway 重启后依然只列表本设备会话。
-        const deviceThreadIds = new Set(listDeviceSessions(auth.deviceId));
-        const items = allItems
-          .filter((item) => deviceThreadIds.has(item.id))
-          .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20);
-        jsonResponse(response, 200, { items });
-        return;
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/opencode/resumes') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
-          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
-          return;
-        }
-
-        // 设备专属工作目录：强制会话 cwd 指向该设备目录，实现文件天然按设备隔离。
-        const workspace = deviceWorkspace(filesRoot, auth.deviceId);
-        if (!workspace) {
-          errorResponse(response, 400, 'invalid_device', 'Device id is required');
-          return;
-        }
-        try {
-          fs.mkdirSync(workspace, { recursive: true });
-        } catch (error) {
-          errorResponse(response, 500, 'workspace_create_failed', 'Could not create device workspace directory');
-          return;
-        }
-
-        const cwd = workspace;
-        // directory 让 opencode 把该会话的读写限制在设备工作区（文件隔离的关键）。
-        const session = await opencodeClient.startResume({ cwd, directory: workspace });
-        if (auth.deviceId && session.threadId) {
-          saveDeviceSession(session.threadId, auth.deviceId);
-        }
-        jsonResponse(response, 200, session);
-        return;
-      }
 
 ==== 第 25 页 ====
   if (nonce !== null) {
@@ -2500,57 +1276,6 @@ export async function encryptConnectionStore(plainText: string): Promise<string>
     await ensureConnectionKey();
     const handle = await huks.initSession(CONNECTION_KEY_ALIAS, options);
     const finish = await huks.finishSession(handle.handle, options);
-==== 后段第 25 页 ====
-      const opencodeResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/resume$/);
-      if (request.method === 'POST' && opencodeResumeMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const threadId = decodeURIComponent(opencodeResumeMatch[1]);
-        if (threadId.trim().length === 0) {
-          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
-          return;
-        }
-        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
-        const session = await opencodeClient.readResume({ threadId, directory });
-        recordSessionFiles(auth.deviceId, threadId, session.files);
-        jsonResponse(response, 200, session);
-        return;
-      }
-
-      const opencodeArchiveResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/archive$/);
-      if (request.method === 'POST' && opencodeArchiveResumeMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const threadId = decodeURIComponent(opencodeArchiveResumeMatch[1]);
-        if (threadId.trim().length === 0) {
-          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
-          return;
-        }
-        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        await opencodeClient.archiveResume({ threadId });
-        deleteDeviceSession(threadId);
-        jsonResponse(response, 200, { ok: true });
-        return;
-      }
-
-      const opencodeRenameResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/name$/);
-      if (request.method === 'POST' && opencodeRenameResumeMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const threadId = decodeURIComponent(opencodeRenameResumeMatch[1]);
-        const body = await readJson(request);
-        const name = typeof body.name === 'string' ? body.name.trim() : '';
-        if (threadId.trim().length === 0 || name.length === 0) {
-          errorResponse(response, 400, 'invalid_request', 'Thread id and name are required');
-          return;
-        }
-        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
-        await opencodeClient.renameResume({ threadId, name, directory });
 ==== 第 26 页 ====
     const outData = finish.outData;
 
@@ -2602,57 +1327,6 @@ export async function decryptConnectionStore(storedValue: string): Promise<strin
     return utf8Decode(outData);
   } catch (error) {
     return null;
-==== 后段第 26 页 ====
-        jsonResponse(response, 200, { ok: true });
-        return;
-      }
-
-      const opencodeDeleteResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)$/);
-      if (request.method === 'DELETE' && opencodeDeleteResumeMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const threadId = decodeURIComponent(opencodeDeleteResumeMatch[1]);
-        if (threadId.trim().length === 0) {
-          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
-          return;
-        }
-        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        await opencodeClient.deleteResume({ threadId });
-        deleteDeviceSession(threadId);
-        jsonResponse(response, 200, { ok: true });
-        return;
-      }
-
-      const opencodeMessageMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/messages$/);
-      if (request.method === 'POST' && opencodeMessageMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const threadId = decodeURIComponent(opencodeMessageMatch[1]);
-        const body = await readJson(request);
-        const message = typeof body.message === 'string' ? body.message : '';
-        if (threadId.trim().length === 0 || message.trim().length === 0) {
-          errorResponse(response, 400, 'invalid_request', 'Thread id and message are required');
-          return;
-        }
-        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
-        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
-        const session = await opencodeClient.sendResumeMessage({ threadId, message, directory });
-        recordSessionFiles(auth.deviceId, threadId, session.files);
-        jsonResponse(response, 200, session);
-        return;
-      }
-
-      // ─── Tasks ───
-      const createTaskMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/tasks$/);
-      if (request.method === 'POST' && createTaskMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const projectId = createTaskMatch[1];
-        if (projectId !== PROJECT.id) {
-          errorResponse(response, 404, 'project_not_found', 'Project not found');
 ==== 第 27 页 ====
   }
 }
@@ -2704,57 +1378,6 @@ export interface ConnectionFormErrors {
 }
 
 export interface ConnectionCarouselSelection {
-==== 后段第 27 页 ====
-          return;
-        }
-
-        const body = await readJson(request);
-        const taskId = `task_${randomUUID()}`;
-        const task = {
-          id: taskId, taskId, projectId, status: 'queued',
-          message: typeof body.message === 'string' ? body.message : '',
-          sandbox: typeof body.sandbox === 'string' ? body.sandbox : 'workspace-write',
-          networkEnabled: Boolean(body.networkEnabled),
-          createdAt: new Date().toISOString()
-        };
-        tasks.set(taskId, task);
-        jsonResponse(response, 200, { taskId, status: task.status });
-        return;
-      }
-
-      const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
-      if (request.method === 'GET' && taskMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-
-        const task = tasks.get(taskMatch[1]);
-        if (!task) {
-          errorResponse(response, 404, 'task_not_found', 'Task not found');
-          return;
-        }
-        jsonResponse(response, 200, task);
-        return;
-      }
-
-      // ─── Files: List（按设备汇总其会话产出的文件；登记式隔离，不依赖目录） ───
-      if (request.method === 'GET' && url.pathname === '/api/files') {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
-          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
-          return;
-        }
-        const root = path.resolve(filesRoot);
-        // 对外只暴露扁平文件名（basename），避免带 `/` 的文件名在客户端保存时报“文件名不合法”。
-        const seen = new Set();
-        const items = [];
-        for (const row of listSessionFileRecords(auth.deviceId)) {
-          const displayName = path.basename(row.name);
-          if (displayName.length === 0 || seen.has(displayName)) {
-            continue;
-          }
-          const absolute = path.resolve(root, row.name);
 ==== 第 28 页 ====
   index: number;
   id: string;
@@ -2806,57 +1429,6 @@ export function resolveConnectionName(
 ): string {
   const normalizedCustomName = customName.trim();
   if (normalizedCustomName.length > 0) {
-==== 后段第 28 页 ====
-          if (absolute !== root && !absolute.startsWith(root + path.sep)) {
-            continue;
-          }
-          if (!isAllowedFile(absolute)) {
-            continue;
-          }
-          let stats;
-          try {
-            stats = fs.statSync(absolute);
-          } catch (error) {
-            continue;
-          }
-          if (!stats.isFile()) {
-            continue;
-          }
-          seen.add(displayName);
-          items.push({ name: displayName, size: stats.size, modifiedAt: stats.mtime.toISOString() });
-        }
-        items.sort((left, right) => left.name.localeCompare(right.name));
-        jsonResponse(response, 200, { items });
-        return;
-      }
-
-      // ─── Files: Download（仅限本设备会话登记过的文件，精确查表，杜绝越权/穿越） ───
-      const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
-      if (request.method === 'GET' && downloadMatch) {
-        const auth = requireAuth(request, response);
-        if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
-          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
-          return;
-        }
-
-        let requestedName;
-        try {
-          requestedName = decodeURIComponent(downloadMatch[1]);
-        } catch (error) {
-          requestedName = downloadMatch[1];
-        }
-
-        // 支持按“完整相对路径”或“扁平文件名(basename)”回查本设备登记记录。
-        const records = listSessionFileRecords(auth.deviceId);
-        const record = records.find((row) => row.name === requestedName) ||
-          records.find((row) => path.basename(row.name) === requestedName);
-        if (!record) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
-
 ==== 第 29 页 ====
     return normalizedCustomName;
   }
@@ -2908,57 +1480,6 @@ export function hasConnectionWithSameEndpoint(
   scheme: string,
   host: string,
   port: number,
-==== 后段第 29 页 ====
-        const root = path.resolve(filesRoot);
-        const target = path.resolve(root, record.name);
-        if (target !== root && !target.startsWith(root + path.sep)) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
-        if (!isAllowedFile(target)) {
-          errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
-          return;
-        }
-
-        let stats;
-        try {
-          stats = fs.statSync(target);
-        } catch (error) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
-        if (!stats.isFile()) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
-
-        // 流式发送，避免大文件整块读入内存。
-        response.writeHead(200, {
-          'content-type': mimeTypeForFile(target),
-          'content-length': stats.size,
-          'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(target))}"`
-        });
-        const stream = fs.createReadStream(target);
-        stream.on('error', () => {
-          response.destroy();
-        });
-        response.on('close', () => {
-          stream.destroy();
-        });
-        stream.pipe(response);
-        return;
-      }
-
-      errorResponse(response, 404, 'not_found', 'Not found');
-    } catch (error) {
-      console.error(`[gateway] ${request.method} ${request.url} 500:`, error);
-      errorResponse(response, 500, 'gateway_unavailable', error instanceof Error ? error.message : 'Gateway error');
-    }
-  };
-}
-
-export function createGatewayListener(options = {}) {
-  const handler = createGatewayHandler(options);
 ==== 第 30 页 ====
   ignoredConnectionId: string
 ): boolean {
@@ -3010,7 +1531,1487 @@ export function resolveCarouselSwipeIndex(currentIndex: number, itemCount: numbe
   }
 
   return resolveCarouselIndex(currentIndex, itemCount);
-==== 后段第 30 页 ====
+==== 第 31 页 ====
+  }
+
+  return messages.map((message, index) => {
+    const info = message?.info ?? {};
+    const messageId = normalizeString(info.id) || `message-${index + 1}`;
+    const role = normalizeRole(info.role);
+    const status = resolveMessageStatus(info);
+    const turn = {
+      id: messageId,
+      status,
+      startedAt: timestampToIso(info.time?.created),
+      completedAt: timestampToIso(info.time?.completed),
+      items: Array.isArray(message?.parts) ? message.parts
+        .map((part, partIndex) => mapOpenCodePartToResumeContent(messageId, role, part, partIndex))
+        .filter(Boolean) : []
+    };
+    return turn;
+  }).filter((turn) => turn.items.length > 0 || isActiveStatus(turn.status));
+}
+
+export function mapOpenCodeSessionToResumeSession(session, messages = []) {
+  const item = mapOpenCodeSessionToResumeItem(session);
+  const turns = mapOpenCodeMessagesToResumeTurns(messages);
+  const running = turns.some((turn) => isActiveStatus(turn.status));
+
+  return {
+    threadId: item.id,
+    title: item.title,
+    cwd: item.subtitle,
+    status: running ? 'running' : item.status,
+    turns
+  };
+}
+
+// 会把文件写入磁盘的工具（read 之类的只读工具不计入）。
+const FILE_PRODUCING_TOOLS = new Set([
+  'write', 'edit', 'patch', 'apply_patch', 'multiedit', 'create', 'write_file', 'str_replace_editor'
+]);
+
+// shell 类工具：需从命令/输出里扫文件路径（bash 直接写文件不会被上面识别）。
+const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'console', 'terminal']);
+
+// 会话兜底命名：取首条消息前 N 个字符。
+const SESSION_TITLE_MAX_LENGTH = 20;
+
+// 会被登记的产出文件扩展名（与 file-service 白名单一致）。
+const ALLOWED_FILE_EXT_RE = /\.(?:pptx|docx|xlsx|pdf|md|txt|zip)$/i;
+
+/**
+ * 从会话消息 parts 中提取“产出/改动的文件路径”。
+==== 第 32 页 ====
+ * 用于把文件按会话归属到设备（不依赖 opencode 的目录隔离）。
+ *
+ * 覆盖：
+ * - `file` part 的 filename/path
+ * - 写文件类工具（write/edit/patch…）input/metadata 中含 file/path 的字段
+ * - bash/shell 工具的命令与输出中以白名单扩展名结尾的路径（覆盖 `cat > x.docx`、脚本产出等）
+ */
+export function extractFilePathsFromMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const paths = new Set();
+  const add = (value) => {
+    const path = normalizeString(value);
+    if (path.length > 0) {
+      paths.add(path);
+    }
+  };
+
+  for (const message of messages) {
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    for (const part of parts) {
+      const type = normalizeString(part?.type);
+      if (type === 'file') {
+        add(part?.filename);
+        add(part?.path);
+        continue;
+      }
+      if (type !== 'tool') {
+        continue;
+      }
+
+      const toolName = normalizeString(part?.tool).toLowerCase();
+      const state = part?.state ?? {};
+
+      if (FILE_PRODUCING_TOOLS.has(toolName)) {
+        // 不同工具/版本字段名不一（filePath / file_path / path / filename …）。
+        for (const value of pickPathLikeValues(state.input)) {
+          add(value);
+        }
+        for (const value of pickPathLikeValues(state.metadata)) {
+          add(value);
+        }
+      }
+
+      // shell 类工具：从命令/输出里扫出以白名单扩展名结尾的路径（覆盖 bash/脚本产物）。
+      if (SHELL_TOOLS.has(toolName)) {
+        for (const value of collectStringValues(state.input)) {
+          for (const token of extractPathTokens(value)) {
+==== 第 33 页 ====
+            add(token);
+          }
+        }
+        for (const value of collectStringValues(state.metadata)) {
+          for (const token of extractPathTokens(value)) {
+            add(token);
+          }
+        }
+        for (const token of extractPathTokens(normalizeString(state.output))) {
+          add(token);
+        }
+      }
+    }
+  }
+
+  return Array.from(paths);
+}
+
+/** 从 `/session/:id/diff` 的返回中提取文件路径（字段名未知，做通用兜底）。 */
+export function extractFilePathsFromDiff(diff) {
+  if (!Array.isArray(diff)) {
+    return [];
+  }
+  const paths = new Set();
+  const add = (value) => {
+    const path = normalizeString(value);
+    if (path.length > 0) {
+      paths.add(path);
+    }
+  };
+  for (const entry of diff) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    add(entry.file);
+    add(entry.path);
+    add(entry.filename);
+    for (const value of pickPathLikeValues(entry)) {
+      add(value);
+    }
+    for (const value of collectStringValues(entry)) {
+      for (const token of extractPathTokens(value)) {
+        add(token);
+      }
+    }
+  }
+  return Array.from(paths);
+}
+
+/** 收集对象中所有字符串值（一层）。 */
+==== 第 34 页 ====
+function collectStringValues(source) {
+  if (!source || typeof source !== 'object') {
+    return [];
+  }
+  return Object.values(source).filter((value) => typeof value === 'string');
+}
+
+/** 从任意文本里提取“以白名单扩展名结尾”的路径 token。 */
+function extractPathTokens(text) {
+  const value = normalizeString(text);
+  if (value.length === 0) {
+    return [];
+  }
+  const tokens = value.split(/[\s"'`|<>,;()[\]{}]+/);
+  const results = [];
+  for (const raw of tokens) {
+    const token = raw.replace(/[.,:;]+$/, '');
+    if (token.length > 0 && token.length < 1024 && ALLOWED_FILE_EXT_RE.test(token)) {
+      results.push(token);
+    }
+  }
+  return results;
+}
+
+function pickPathLikeValues(source) {
+  if (!source || typeof source !== 'object') {
+    return [];
+  }
+  const values = [];
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string' && value.length > 0 && value.length < 1024 && /file|path/i.test(key)) {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+export class OpenCodeServerClient {
+  constructor(options = {}) {
+    this.url = stripTrailingSlash(options.url ?? process.env.OPENCODE_SERVER_URL ?? DEFAULT_OPENCODE_SERVER_URL);
+    this.command = options.command ?? process.env.OPENCODE_COMMAND ?? DEFAULT_OPENCODE_COMMAND;
+    this.workdir = normalizeString(options.workdir ?? process.env.OPENCODE_WORKDIR ?? process.env.HOME ?? homedir()) ||
+      process.cwd();
+    this.process = null;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.spawnServer = options.spawnServer ?? spawn;
+    this.platform = options.platform ?? process.platform;
+    this.runCommand = options.runCommand ?? ((args) => runCommand(this.spawnServer, this.command, args, {
+      cwd: this.workdir,
+      platform: this.platform
+==== 第 35 页 ====
+    }));
+    this.now = options.now ?? Date.now;
+    this.stderr = '';
+    this.startupError = null;
+    this.sessionsCacheTtlMs = options.sessionsCacheTtlMs ?? SESSIONS_CACHE_TTL_MS;
+    this.sessionsCache = new Map();
+  }
+
+  async listResumes(options = {}) {
+    const limit = options.limit ?? 20;
+    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
+    const rows = await this.loadSessionRows(normalizedLimit);
+    const sessions = rows.map(mapOpenCodeDbSessionToSession);
+    return sessions
+      .filter((session) => !session?.time?.archived)
+      .sort((left, right) => Number(right?.time?.updated || 0) - Number(left?.time?.updated || 0))
+      .slice(0, normalizedLimit)
+      .map(mapOpenCodeSessionToResumeItem);
+  }
+
+  /** 带短 TTL 缓存地读取会话列表，避免每次请求都 spawn `opencode db`。 */
+  async loadSessionRows(limit) {
+    const cached = this.sessionsCache.get(limit);
+    const now = this.now();
+    if (cached && now - cached.at < this.sessionsCacheTtlMs) {
+      return cached.rows;
+    }
+    const rows = await this.querySessions(limit);
+    this.sessionsCache.set(limit, { at: now, rows });
+    return rows;
+  }
+
+  invalidateSessionsCache() {
+    this.sessionsCache.clear();
+  }
+
+  async readResume(options = {}) {
+    const threadId = requireThreadId(options.threadId);
+    const directory = normalizeString(options.directory);
+    const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
+    const messages = await this.request(`/session/${encodeURIComponent(threadId)}/message`, { directory });
+    const messageFiles = extractFilePathsFromMessages(messages);
+    // 会话 diff 能覆盖 bash/脚本产出的文件；失败时静默降级为仅用消息解析结果。
+    const diffFiles = await this.readSessionDiff(threadId, directory);
+    return {
+      ...mapOpenCodeSessionToResumeSession(session, messages),
+      files: Array.from(new Set([...messageFiles, ...diffFiles]))
+    };
+  }
+
+==== 第 36 页 ====
+  async readSessionDiff(threadId, directory) {
+    try {
+      const diff = await this.request(`/session/${encodeURIComponent(threadId)}/diff`, {
+        directory,
+        timeout: 5000
+      });
+      return extractFilePathsFromDiff(diff);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async startResume(options = {}) {
+    // directory 决定 opencode 的项目/工作目录：不同设备各自的工作区。
+    const directory = normalizeString(options.directory) || normalizeString(options.cwd);
+    // 不复用目录当标题：让 opencode 按首句自动命名（未自动命名时由 sendResumeMessage 兜底）。
+    const session = await this.request('/session', {
+      method: 'POST',
+      body: {},
+      directory: directory !== '~' ? directory : ''
+    });
+    this.invalidateSessionsCache();
+    return mapOpenCodeSessionToResumeSession(session, []);
+  }
+
+  async sendResumeMessage(options = {}) {
+    const threadId = requireThreadId(options.threadId);
+    const message = normalizeString(options.message);
+    if (message.length === 0) {
+      throw new Error('message is required');
+    }
+
+    // prompt_async：发送即返回 204，不等待生成完成；结果由客户端轮询 /resume 获取（不阻塞、不取消生成）。
+    await this.request(`/session/${encodeURIComponent(threadId)}/prompt_async`, {
+      method: 'POST',
+      body: {
+        parts: [
+          {
+            type: 'text',
+            text: message
+          }
+        ]
+      },
+      directory: normalizeString(options.directory)
+    });
+
+    const session = await this.readResume({ threadId, directory: options.directory });
+
+    // 兜底命名：若 opencode 还没按首句命名（标题仍为空/就是 session id），用本条消息前 20 字命名。
+    if (isSessionTitleUnset(session.title, threadId)) {
+==== 第 37 页 ====
+      const title = deriveSessionTitle(message);
+      if (title.length > 0) {
+        try {
+          await this.renameResume({ threadId, name: title, directory: normalizeString(options.directory) });
+          session.title = title;
+        } catch (error) {
+          console.error(`[opencode] 会话兜底命名失败: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+    }
+
+    return session;
+  }
+
+  async archiveResume(options = {}) {
+    const threadId = requireThreadId(options.threadId);
+    const now = Number(this.now());
+    await this.runCommand([
+      'db',
+      `update session set time_archived = ${now}, time_updated = ${now} where id = '${escapeSqlLiteral(threadId)}'`
+    ]);
+    this.invalidateSessionsCache();
+  }
+
+  async renameResume(options = {}) {
+    const threadId = requireThreadId(options.threadId);
+    const name = normalizeString(options.name);
+    if (name.length === 0) {
+      throw new Error('name is required');
+    }
+
+    await this.request(`/session/${encodeURIComponent(threadId)}`, {
+      method: 'PATCH',
+      body: {
+        title: name
+      },
+      directory: normalizeString(options.directory)
+    });
+    this.invalidateSessionsCache();
+  }
+
+  async deleteResume(options = {}) {
+    const threadId = requireThreadId(options.threadId);
+    await this.runCommand(['session', 'delete', threadId]);
+    this.invalidateSessionsCache();
+  }
+
+  async querySessions(limit) {
+    const stdout = await this.runCommand([
+      'db',
+==== 第 38 页 ====
+      `select id, title, slug, directory, path, time_created, time_updated, time_archived from session where time_archived is null order by time_updated desc limit ${limit}`,
+      '--format',
+      'json'
+    ]);
+    const text = normalizeString(stdout);
+    return text.length > 0 ? JSON.parse(text) : [];
+  }
+
+  async request(path, options = {}) {
+    await this.ensureReady();
+
+    // opencode 按 `directory` 解析项目/工作目录；用它把不同设备隔离到各自工作区。
+    let target = `${this.url}${path}`;
+    if (normalizeString(options.directory).length > 0) {
+      const url = new URL(target);
+      url.searchParams.set('directory', normalizeString(options.directory));
+      target = url.toString();
+    }
+
+    const timeoutMs = options.timeout ?? 300000;
+    const response = await this.fetchImpl(target, {
+      method: options.method ?? 'GET',
+      headers: options.body !== undefined ? {
+        'content-type': 'application/json'
+      } : undefined,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!response?.ok) {
+      throw new Error(`opencode server request failed: ${response?.status ?? 'no response'}`);
+    }
+
+    const text = await response.text();
+    return text.trim().length > 0 ? JSON.parse(text) : {};
+  }
+
+  async ensureReady() {
+    if (await this.isReady()) {
+      return;
+    }
+
+    await this.startServer();
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < SERVER_READY_TIMEOUT_MS) {
+      if (await this.isReady()) {
+        return;
+      }
+      if (!this.process) {
+        if (this.startupError) {
+          throw this.startupError;
+==== 第 39 页 ====
+        }
+        throw new Error(this.describeStartupError('opencode serve exited before ready'));
+      }
+      await wait(SERVER_READY_INTERVAL_MS);
+    }
+
+    throw new Error(this.describeStartupError('Timed out waiting for opencode serve'));
+  }
+
+  async isReady() {
+    try {
+      const response = await this.fetchImpl(`${this.url}/session`);
+      return Boolean(response?.ok);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  async startServer() {
+    if (this.process) {
+      return;
+    }
+
+    const listenUrl = new URL(this.url);
+    const spawnOptions = {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      cwd: this.workdir
+    };
+    if (this.platform === 'win32') {
+      spawnOptions.shell = true;
+      spawnOptions.windowsHide = true;
+    }
+
+    const child = this.spawnServer(this.command, [
+      'serve',
+      '--hostname',
+      listenUrl.hostname,
+      '--port',
+      listenUrl.port || '4096',
+      '--print-logs'
+    ], spawnOptions);
+    this.process = child;
+    this.startupError = null;
+
+    child.stderr?.on('data', (chunk) => {
+      this.stderr += chunk.toString();
+      if (this.stderr.length > 4000) {
+        this.stderr = this.stderr.slice(-4000);
+      }
+    });
+==== 第 40 页 ====
+
+    child.once('error', (error) => {
+      this.process = null;
+      this.startupError = error;
+    });
+
+    child.once('exit', () => {
+      this.process = null;
+    });
+  }
+
+  describeStartupError(message) {
+    const stderr = this.stderr.trim();
+    if (stderr.length === 0) {
+      return message;
+    }
+
+    return `${message}\n${stderr}`;
+  }
+}
+
+function mapOpenCodeDbSessionToSession(row) {
+  return {
+    id: row?.id,
+    title: row?.title,
+    slug: row?.slug,
+    directory: row?.directory,
+    path: row?.path,
+    time: {
+      created: row?.time_created,
+      updated: row?.time_updated,
+      archived: row?.time_archived
+    }
+  };
+}
+
+function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
+  const partId = normalizeString(part?.id) || `part-${partIndex + 1}`;
+  const type = normalizeString(part?.type) || 'part';
+
+  if (type === 'text') {
+    if (role !== 'user' && role !== 'assistant') {
+      return null;
+    }
+
+    return resumeContent(`${messageId}:${partId}`, role, 'message', part?.text, '');
+  }
+
+  // 工具调用 / 文件产物也映射为内容项，让“生成文件/调用工具”这类长任务在客户端有进度可看。
+  if (type === 'tool') {
+==== 第 41 页 ====
+    const toolName = normalizeString(part?.tool) || 'tool';
+    const status = normalizeString(part?.state?.status);
+    const text = status.length > 0 ? `${toolName} · ${status}` : toolName;
+    return resumeContent(`${messageId}:${partId}`, 'tool', 'tool', text, status);
+  }
+
+  if (type === 'file') {
+    const filename = normalizeString(part?.filename) || normalizeString(part?.path) || 'file';
+    // 只展示文件名+后缀，不展示完整路径。
+    return resumeContent(`${messageId}:${partId}`, 'tool', 'file', baseName(filename), '');
+  }
+
+  return null;
+}
+
+function resumeContent(id, role, kind, text, status) {
+  const normalizedText = truncateText(normalizePartText(text));
+  if (normalizedText.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    role,
+    kind,
+    text: normalizedText,
+    status
+  };
+}
+
+function normalizePartText(value) {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizePartText).filter(Boolean).join('\n');
+  }
+
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return '';
+}
+
+function normalizeRole(role) {
+  if (role === 'assistant' || role === 'user' || role === 'tool' || role === 'system') {
+    return role;
+  }
+==== 第 42 页 ====
+
+  return 'system';
+}
+
+function resolveMessageStatus(info) {
+  if (info?.error) {
+    return 'error';
+  }
+
+  if (info?.role === 'assistant' && !info?.time?.completed) {
+    return 'running';
+  }
+
+  return 'completed';
+}
+
+function isActiveStatus(status) {
+  return status === 'running' || status === 'inProgress' || status === 'in_progress' || status === 'queued';
+}
+
+function timestampToIso(value) {
+  const timestamp = Number(value || 0);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : '';
+}
+
+function truncateText(value) {
+  if (value.length <= MAX_PART_TEXT_LENGTH) {
+    return value;
+  }
+
+  return `${value.slice(0, MAX_PART_TEXT_LENGTH)}\n...`;
+}
+
+function normalizeString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** 只取路径的文件名部分（兼容 `/`、`\`）。 */
+function baseName(value) {
+  const text = normalizeString(value).replace(/\\/g, '/');
+  const index = text.lastIndexOf('/');
+  return index >= 0 ? text.slice(index + 1) : text;
+}
+
+/** 会话标题是否“未命名”（空 / 就是 session id / 形如 ses_xxx）。 */
+function isSessionTitleUnset(title, threadId) {
+  const value = normalizeString(title);
+  if (value.length === 0) {
+    return true;
+  }
+==== 第 43 页 ====
+  if (value === normalizeString(threadId)) {
+    return true;
+  }
+  return /^ses[_-]/i.test(value);
+}
+
+/** 兜底标题：取消息前 N 个字符（换行保留）。 */
+function deriveSessionTitle(message) {
+  const text = typeof message === 'string' ? message.replace(/\r\n/g, '\n').trim() : '';
+  return Array.from(text).slice(0, SESSION_TITLE_MAX_LENGTH).join('');
+}
+
+function requireThreadId(threadId) {
+  const normalized = normalizeString(threadId);
+  if (normalized.length === 0) {
+    throw new Error('threadId is required');
+  }
+
+  return normalized;
+}
+
+function stripTrailingSlash(value) {
+  return normalizeString(value).replace(/\/+$/, '');
+}
+
+function escapeSqlLiteral(value) {
+  return normalizeString(value).replace(/'/g, "''");
+}
+
+function runCommand(spawnCommand, command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const spawnOptions = {
+      cwd: options.cwd,
+      stdio: ['ignore', 'pipe', 'pipe']
+    };
+    if (options.platform === 'win32') {
+      spawnOptions.shell = true;
+      spawnOptions.windowsHide = true;
+    }
+
+    const child = spawnCommand(command, args, spawnOptions);
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+==== 第 44 页 ====
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+
+      reject(new Error(`opencode command failed (${code}): ${stderr.trim()}`));
+    });
+  });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+const CLEANUP_INTERVAL_MS = 60 * 1000;
+
+export class RateLimiter {
+  #windowMs;
+  #maxRequests;
+  #clients;
+  #cleanupTimer;
+
+  constructor(windowMs, maxRequests) {
+    this.#windowMs = windowMs;
+    this.#maxRequests = maxRequests;
+    this.#clients = new Map();
+
+    this.#cleanupTimer = setInterval(() => this.#cleanup(), CLEANUP_INTERVAL_MS);
+    if (this.#cleanupTimer.unref) {
+      this.#cleanupTimer.unref();
+    }
+  }
+
+  check(key) {
+    const now = Date.now();
+    const entry = this.#clients.get(key);
+
+    if (!entry || now >= entry.resetAt) {
+      this.#clients.set(key, { count: 1, resetAt: now + this.#windowMs });
+      return true;
+    }
+
+    if (entry.count >= this.#maxRequests) {
+      return false;
+    }
+
+    entry.count += 1;
+    return true;
+  }
+==== 第 45 页 ====
+
+  reset(key) {
+    this.#clients.delete(key);
+  }
+
+  #cleanup() {
+    const now = Date.now();
+    for (const [key, entry] of this.#clients) {
+      if (now >= entry.resetAt) {
+        this.#clients.delete(key);
+      }
+    }
+  }
+}
+
+export function getClientIp(request) {
+  const forwarded = request.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+
+  const realIp = request.headers['x-real-ip'];
+  if (realIp) {
+    return realIp.trim();
+  }
+
+  return request.socket?.remoteAddress ?? '';
+}
+
+const FIFTEEN_MINUTES = 15 * 60 * 1000;
+const FIVE_MINUTES = 5 * 60 * 1000;
+const ONE_HOUR = 60 * 60 * 1000;
+
+export const registerLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
+export const activateLimiter = new RateLimiter(FIVE_MINUTES, 3);
+export const challengeLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
+export const verifyLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
+export const refreshLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
+export const reregisterLimiter = new RateLimiter(ONE_HOUR, 3);
+import http from 'node:http';
+import https from 'node:https';
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { OpenCodeServerClient } from './opencode-server.mjs';
+import {
+  verifyAccessToken,
+  ensureDeviceRegistrationCode,
+  createActivationChallenge,
+  verifyActivation,
+==== 第 46 页 ====
+  createLoginChallenge,
+  verifyLogin,
+  refreshAccessToken,
+  reregisterDevice,
+  logoutDevice,
+  cleanupExpiredNonces,
+} from './auth.mjs';
+import {
+  registerLimiter,
+  activateLimiter,
+  challengeLimiter,
+  verifyLimiter,
+  refreshLimiter,
+  reregisterLimiter,
+  getClientIp,
+} from './rate-limiter.mjs';
+import {
+  resolveFilesRoot,
+  deviceWorkspace,
+  isAllowedFile,
+} from './file-service.mjs';
+import {
+  saveDeviceSession,
+  getDeviceSessionOwner,
+  listDeviceSessions,
+  deleteDeviceSession,
+  upsertSessionFile,
+  listSessionFileRecords,
+} from './db.mjs';
+
+const DEFAULT_HOST = '0.0.0.0';
+const DEFAULT_PORT = 8443;
+
+const PROJECT = {
+  id: 'codex-router',
+  name: 'AI Router',
+  defaultBranch: 'master',
+  status: 'ready',
+  permissions: ['task:create', 'task:read', 'task:write', 'diff:read', 'approval:review']
+};
+
+function jsonResponse(response, statusCode, body) {
+  response.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
+    'access-control-allow-headers': 'authorization,content-type'
+  });
+  response.end(JSON.stringify(body));
+}
+==== 第 47 页 ====
+
+function errorResponse(response, statusCode, code, message) {
+  jsonResponse(response, statusCode, {
+    error: { code, message, requestId: `req_${randomUUID()}` }
+  });
+}
+
+function readJson(request) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => {
+      if (raw.trim().length === 0) { resolve({}); return; }
+      try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
+    });
+    request.on('error', reject);
+  });
+}
+
+function bearerToken(request) {
+  const header = request.headers.authorization ?? '';
+  if (!header.startsWith('Bearer ')) return '';
+  return header.substring('Bearer '.length);
+}
+
+const MIME_TYPES = {
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.zip': 'application/zip'
+};
+
+function mimeTypeForFile(target) {
+  return MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function normalizeResumeCwd(value) {
+  const cwd = typeof value === 'string' ? value.trim() : '';
+  return cwd.length > 0 ? cwd : '~';
+}
+
+function requireAuth(request, response) {
+  const token = bearerToken(request);
+  if (!token) {
+    errorResponse(response, 401, 'token_missing', 'Authorization token required');
+    return null;
+==== 第 48 页 ====
+  }
+  const payload = verifyAccessToken(token);
+  if (!payload) {
+    errorResponse(response, 401, 'token_expired', 'Token is expired or invalid');
+    return null;
+  }
+  return { deviceId: payload.sub };
+}
+
+/**
+ * 会话归属校验：只有创建该会话的设备才能访问。非归属方返回 404（不泄漏会话是否存在）。
+ */
+function requireThreadOwnership(response, deviceId, threadId) {
+  const owner = getDeviceSessionOwner(threadId);
+  if (!owner || owner !== deviceId) {
+    errorResponse(response, 404, 'session_not_found', 'Session not found');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 把会话产出的文件路径登记到 session_files（按设备归属）。
+ * 只登记位于 filesRoot 之下、扩展名白名单、且当前存在的文件。
+ */
+function recordSessionFiles(deviceId, threadId, paths) {
+  if (!deviceId || !threadId || !Array.isArray(paths) || paths.length === 0) {
+    return;
+  }
+  const filesRoot = resolveFilesRoot();
+  if (!filesRoot) {
+    return;
+  }
+  const root = path.resolve(filesRoot);
+  for (const raw of paths) {
+    const candidate = typeof raw === 'string' ? raw.trim() : '';
+    if (candidate.length === 0) {
+      continue;
+    }
+    const absolute = path.resolve(path.isAbsolute(candidate) ? candidate : path.join(root, candidate));
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+      continue;
+    }
+    if (!isAllowedFile(absolute)) {
+      continue;
+    }
+    let stats;
+    try {
+      stats = fs.statSync(absolute);
+    } catch (error) {
+==== 第 49 页 ====
+      continue;
+    }
+    if (!stats.isFile()) {
+      continue;
+    }
+    const name = path.relative(root, absolute).split(path.sep).join('/');
+    try {
+      upsertSessionFile(threadId, deviceId, absolute, name, stats.size, stats.mtime.toISOString());
+    } catch (error) {
+      console.error(`[gateway] 登记会话文件失败: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+}
+
+function createGatewayHandler(options = {}) {
+  const tasks = new Map();
+  const opencodeClient = options.opencodeClient ?? new OpenCodeServerClient();
+
+  setInterval(() => {
+    cleanupExpiredNonces();
+  }, 60 * 1000).unref();
+
+  return async (request, response) => {
+    try {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+
+      if (request.method === 'OPTIONS') {
+        jsonResponse(response, 204, {});
+        return;
+      }
+
+      // ─── Health ───
+      if (request.method === 'GET' && url.pathname === '/health') {
+        jsonResponse(response, 200, { status: 'ok', sessionName: 'opencode-main' });
+        return;
+      }
+
+      // ─── Auth: Register (get activation challenge) ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/register') {
+        const ip = getClientIp(request);
+        if (!registerLimiter.check(ip)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many registration attempts');
+          return;
+        }
+
+        const body = await readJson(request);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
+
+        if (!deviceId || !publicKey) {
+==== 第 50 页 ====
+          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
+          return;
+        }
+
+        // 开放注册：首次注册时服务器为该设备随机分配注册码并绑定（此后不可更改/换绑）。
+        const registrationCode = ensureDeviceRegistrationCode(deviceId);
+        const challenge = createActivationChallenge(deviceId, publicKey);
+        jsonResponse(response, 200, { ...challenge, registrationCode });
+        return;
+      }
+
+      // ─── Auth: Activate (complete registration with signature) ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/activate') {
+        const body = await readJson(request);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const activationToken = typeof body.activationToken === 'string' ? body.activationToken.trim() : '';
+        const signedChallenge = typeof body.signedChallenge === 'string' ? body.signedChallenge.trim() : '';
+
+        if (!deviceId || !activationToken || !signedChallenge) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId, activationToken, and signedChallenge are required');
+          return;
+        }
+
+        if (!activateLimiter.check(activationToken)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many activation attempts');
+          return;
+        }
+
+        const result = await verifyActivation(deviceId, activationToken, signedChallenge);
+        if (result.error) {
+          const statusMap = {
+            invalid_token: 400, device_mismatch: 403, token_used: 400,
+            token_expired: 400, no_public_key: 500, invalid_signature: 403
+          };
+          errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
+          return;
+        }
+
+        jsonResponse(response, 200, result);
+        return;
+      }
+
+      // ─── Auth: Challenge (get login nonce) ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/challenge') {
+        const body = await readJson(request);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+
+        if (!deviceId) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId is required');
+          return;
+==== 第 51 页 ====
+        }
+
+        if (!challengeLimiter.check(deviceId)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many challenge requests');
+          return;
+        }
+
+        const result = createLoginChallenge(deviceId);
+        if (!result) {
+          errorResponse(response, 401, 'device_not_found', 'Device not registered or revoked');
+          return;
+        }
+
+        jsonResponse(response, 200, result);
+        return;
+      }
+
+      // ─── Auth: Verify (login with signature) ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/verify') {
+        const body = await readJson(request);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const nonce = typeof body.nonce === 'string' ? body.nonce.trim() : '';
+        const signature = typeof body.signature === 'string' ? body.signature.trim() : '';
+
+        if (!deviceId || !nonce || !signature) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId, nonce, and signature are required');
+          return;
+        }
+
+        if (!verifyLimiter.check(deviceId)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many verification attempts');
+          return;
+        }
+
+        const result = await verifyLogin(deviceId, nonce, signature);
+        if (result.error) {
+          const statusMap = {
+            invalid_nonce: 400, device_mismatch: 403, nonce_used: 400,
+            nonce_expired: 400, device_not_found: 401, invalid_signature: 403
+          };
+          errorResponse(response, statusMap[result.error] ?? 400, result.error, result.error);
+          return;
+        }
+
+        jsonResponse(response, 200, result);
+        return;
+      }
+
+      // ─── Auth: Refresh ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/refresh') {
+==== 第 52 页 ====
+        const body = await readJson(request);
+        const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
+
+        if (!refreshToken) {
+          errorResponse(response, 400, 'invalid_request', 'refreshToken is required');
+          return;
+        }
+
+        if (!refreshLimiter.check(refreshToken)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many refresh attempts');
+          return;
+        }
+
+        const result = refreshAccessToken(refreshToken);
+        if (result.error) {
+          errorResponse(response, 401, result.error, result.error);
+          return;
+        }
+
+        jsonResponse(response, 200, result);
+        return;
+      }
+
+      // ─── Auth: Logout ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
+        const body = await readJson(request);
+        const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
+        if (refreshToken) {
+          logoutDevice(refreshToken);
+        }
+        jsonResponse(response, 200, { ok: true });
+        return;
+      }
+
+      // ─── Auth: Reregister ───
+      if (request.method === 'POST' && url.pathname === '/api/auth/reregister') {
+        const ip = getClientIp(request);
+        if (!reregisterLimiter.check(ip)) {
+          errorResponse(response, 429, 'rate_limited', 'Too many reregistration attempts');
+          return;
+        }
+
+        const body = await readJson(request);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
+        const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : '';
+        const mode = typeof body.mode === 'string' ? body.mode.trim() : 'reset';
+
+        if (!deviceId || !publicKey) {
+          errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
+==== 第 53 页 ====
+          return;
+        }
+
+        // 注册码无需输入：沿用该设备首次注册时自动分配的码。
+        const result = await reregisterDevice(deviceId, publicKey, deviceName, mode);
+        if (result.error) {
+          errorResponse(response, 401, result.error, result.error);
+          return;
+        }
+
+        jsonResponse(response, 200, result);
+        return;
+      }
+
+      // ─── Auth: Me ───
+      if (request.method === 'GET' && url.pathname === '/api/auth/me') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        jsonResponse(response, 200, {
+          deviceId: auth.deviceId,
+          sessionName: 'opencode-main',
+          registrationCode: ensureDeviceRegistrationCode(auth.deviceId)
+        });
+        return;
+      }
+
+      // ─── ICE Config ───
+      if (request.method === 'GET' && url.pathname === '/api/turn/ice-config') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const turnHost = process.env.COTURN_HOST ?? '127.0.0.1';
+        const turnPort = process.env.COTURN_PORT ?? '3478';
+        const turnUser = process.env.COTURN_USER ?? 'codexrouter';
+        const turnPass = process.env.COTURN_PASS ?? '';
+
+        const iceServers = [{ urls: `stun:${turnHost}:${turnPort}` }];
+        if (turnPass.length > 0) {
+          iceServers.push({ urls: `turn:${turnHost}:${turnPort}`, username: turnUser, credential: turnPass });
+        }
+        jsonResponse(response, 200, { iceServers });
+        return;
+      }
+
+      // ─── Projects ───
+      if (request.method === 'GET' && url.pathname === '/api/projects') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        jsonResponse(response, 200, { items: [PROJECT] });
+        return;
+==== 第 54 页 ====
+      }
+
+      // ─── OpenCode Resumes ───
+      if (request.method === 'GET' && url.pathname === '/api/opencode/resumes') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const limit = Number(url.searchParams.get('limit') ?? '20');
+        const allItems = await opencodeClient.listResumes({ limit: 1000 });
+        // 归属持久化在 SQLite，gateway 重启后依然只列表本设备会话。
+        const deviceThreadIds = new Set(listDeviceSessions(auth.deviceId));
+        const items = allItems
+          .filter((item) => deviceThreadIds.has(item.id))
+          .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20);
+        jsonResponse(response, 200, { items });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/opencode/resumes') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+
+        // 设备专属工作目录：强制会话 cwd 指向该设备目录，实现文件天然按设备隔离。
+        const workspace = deviceWorkspace(filesRoot, auth.deviceId);
+        if (!workspace) {
+          errorResponse(response, 400, 'invalid_device', 'Device id is required');
+          return;
+        }
+        try {
+          fs.mkdirSync(workspace, { recursive: true });
+        } catch (error) {
+          errorResponse(response, 500, 'workspace_create_failed', 'Could not create device workspace directory');
+          return;
+        }
+
+        const cwd = workspace;
+        // directory 让 opencode 把该会话的读写限制在设备工作区（文件隔离的关键）。
+        const session = await opencodeClient.startResume({ cwd, directory: workspace });
+        if (auth.deviceId && session.threadId) {
+          saveDeviceSession(session.threadId, auth.deviceId);
+        }
+        jsonResponse(response, 200, session);
+        return;
+      }
+==== 第 55 页 ====
+
+      const opencodeResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/resume$/);
+      if (request.method === 'POST' && opencodeResumeMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const threadId = decodeURIComponent(opencodeResumeMatch[1]);
+        if (threadId.trim().length === 0) {
+          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
+          return;
+        }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+        const session = await opencodeClient.readResume({ threadId, directory });
+        recordSessionFiles(auth.deviceId, threadId, session.files);
+        jsonResponse(response, 200, session);
+        return;
+      }
+
+      const opencodeArchiveResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/archive$/);
+      if (request.method === 'POST' && opencodeArchiveResumeMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const threadId = decodeURIComponent(opencodeArchiveResumeMatch[1]);
+        if (threadId.trim().length === 0) {
+          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
+          return;
+        }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
+        await opencodeClient.archiveResume({ threadId });
+        deleteDeviceSession(threadId);
+        jsonResponse(response, 200, { ok: true });
+        return;
+      }
+
+      const opencodeRenameResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/name$/);
+      if (request.method === 'POST' && opencodeRenameResumeMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const threadId = decodeURIComponent(opencodeRenameResumeMatch[1]);
+        const body = await readJson(request);
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (threadId.trim().length === 0 || name.length === 0) {
+          errorResponse(response, 400, 'invalid_request', 'Thread id and name are required');
+          return;
+        }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+==== 第 56 页 ====
+        await opencodeClient.renameResume({ threadId, name, directory });
+        jsonResponse(response, 200, { ok: true });
+        return;
+      }
+
+      const opencodeDeleteResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)$/);
+      if (request.method === 'DELETE' && opencodeDeleteResumeMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const threadId = decodeURIComponent(opencodeDeleteResumeMatch[1]);
+        if (threadId.trim().length === 0) {
+          errorResponse(response, 400, 'invalid_request', 'Thread id is required');
+          return;
+        }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
+        await opencodeClient.deleteResume({ threadId });
+        deleteDeviceSession(threadId);
+        jsonResponse(response, 200, { ok: true });
+        return;
+      }
+
+      const opencodeMessageMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/messages$/);
+      if (request.method === 'POST' && opencodeMessageMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const threadId = decodeURIComponent(opencodeMessageMatch[1]);
+        const body = await readJson(request);
+        const message = typeof body.message === 'string' ? body.message : '';
+        if (threadId.trim().length === 0 || message.trim().length === 0) {
+          errorResponse(response, 400, 'invalid_request', 'Thread id and message are required');
+          return;
+        }
+        if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
+        const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
+        const session = await opencodeClient.sendResumeMessage({ threadId, message, directory });
+        recordSessionFiles(auth.deviceId, threadId, session.files);
+        jsonResponse(response, 200, session);
+        return;
+      }
+
+      // ─── Tasks ───
+      const createTaskMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/tasks$/);
+      if (request.method === 'POST' && createTaskMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const projectId = createTaskMatch[1];
+        if (projectId !== PROJECT.id) {
+==== 第 57 页 ====
+          errorResponse(response, 404, 'project_not_found', 'Project not found');
+          return;
+        }
+
+        const body = await readJson(request);
+        const taskId = `task_${randomUUID()}`;
+        const task = {
+          id: taskId, taskId, projectId, status: 'queued',
+          message: typeof body.message === 'string' ? body.message : '',
+          sandbox: typeof body.sandbox === 'string' ? body.sandbox : 'workspace-write',
+          networkEnabled: Boolean(body.networkEnabled),
+          createdAt: new Date().toISOString()
+        };
+        tasks.set(taskId, task);
+        jsonResponse(response, 200, { taskId, status: task.status });
+        return;
+      }
+
+      const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
+      if (request.method === 'GET' && taskMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+
+        const task = tasks.get(taskMatch[1]);
+        if (!task) {
+          errorResponse(response, 404, 'task_not_found', 'Task not found');
+          return;
+        }
+        jsonResponse(response, 200, task);
+        return;
+      }
+
+      // ─── Files: List（按设备汇总其会话产出的文件；登记式隔离，不依赖目录） ───
+      if (request.method === 'GET' && url.pathname === '/api/files') {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+        const root = path.resolve(filesRoot);
+        // 对外只暴露扁平文件名（basename），避免带 `/` 的文件名在客户端保存时报“文件名不合法”。
+        const seen = new Set();
+        const items = [];
+        for (const row of listSessionFileRecords(auth.deviceId)) {
+          const displayName = path.basename(row.name);
+          if (displayName.length === 0 || seen.has(displayName)) {
+            continue;
+          }
+==== 第 58 页 ====
+          const absolute = path.resolve(root, row.name);
+          if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+            continue;
+          }
+          if (!isAllowedFile(absolute)) {
+            continue;
+          }
+          let stats;
+          try {
+            stats = fs.statSync(absolute);
+          } catch (error) {
+            continue;
+          }
+          if (!stats.isFile()) {
+            continue;
+          }
+          seen.add(displayName);
+          items.push({ name: displayName, size: stats.size, modifiedAt: stats.mtime.toISOString() });
+        }
+        items.sort((left, right) => left.name.localeCompare(right.name));
+        jsonResponse(response, 200, { items });
+        return;
+      }
+
+      // ─── Files: Download（仅限本设备会话登记过的文件，精确查表，杜绝越权/穿越） ───
+      const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
+      if (request.method === 'GET' && downloadMatch) {
+        const auth = requireAuth(request, response);
+        if (!auth) return;
+        const filesRoot = resolveFilesRoot();
+        if (!filesRoot) {
+          errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
+          return;
+        }
+
+        let requestedName;
+        try {
+          requestedName = decodeURIComponent(downloadMatch[1]);
+        } catch (error) {
+          requestedName = downloadMatch[1];
+        }
+
+        // 支持按“完整相对路径”或“扁平文件名(basename)”回查本设备登记记录。
+        const records = listSessionFileRecords(auth.deviceId);
+        const record = records.find((row) => row.name === requestedName) ||
+          records.find((row) => path.basename(row.name) === requestedName);
+        if (!record) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+==== 第 59 页 ====
+
+        const root = path.resolve(filesRoot);
+        const target = path.resolve(root, record.name);
+        if (target !== root && !target.startsWith(root + path.sep)) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+        if (!isAllowedFile(target)) {
+          errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
+          return;
+        }
+
+        let stats;
+        try {
+          stats = fs.statSync(target);
+        } catch (error) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+        if (!stats.isFile()) {
+          errorResponse(response, 404, 'file_not_found', 'File does not exist');
+          return;
+        }
+
+        // 流式发送，避免大文件整块读入内存。
+        response.writeHead(200, {
+          'content-type': mimeTypeForFile(target),
+          'content-length': stats.size,
+          'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(target))}"`
+        });
+        const stream = fs.createReadStream(target);
+        stream.on('error', () => {
+          response.destroy();
+        });
+        response.on('close', () => {
+          stream.destroy();
+        });
+        stream.pipe(response);
+        return;
+      }
+
+      errorResponse(response, 404, 'not_found', 'Not found');
+    } catch (error) {
+      console.error(`[gateway] ${request.method} ${request.url} 500:`, error);
+      errorResponse(response, 500, 'gateway_unavailable', error instanceof Error ? error.message : 'Gateway error');
+    }
+  };
+}
+
+export function createGatewayListener(options = {}) {
+==== 第 60 页 ====
+  const handler = createGatewayHandler(options);
   if (options.tlsKey && options.tlsCert) {
     const createSecureServer = options.createSecureServer ?? https.createServer;
     return createSecureServer({ key: options.tlsKey, cert: options.tlsCert }, handler);
@@ -3060,4 +3061,3 @@ export function startGatewayServer(options = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   startGatewayServer();
 }
-
