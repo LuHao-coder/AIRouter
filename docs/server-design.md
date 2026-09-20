@@ -1,593 +1,301 @@
 # AIRouter 服务端设计
 
-> 本文是设计历史文档，部分内容（认证方式、代理栈、接口路径）已随迭代更新。实际实现为 `gateway/server.mjs`，部署见 [deploy.md](deploy.md)，认证见 [device-auth-design.md](device-auth-design.md)。
+> 本文档对应当前实现：`gateway/server.mjs`（认证/路由）、`gateway/auth.mjs`、
+> `gateway/db.mjs`、`gateway/file-service.mjs`、`gateway/opencode-server.mjs`。
+> 设备认证细节见 [device-auth-design.md](device-auth-design.md)，部署见 [deploy.md](deploy.md)。
 
 ## 1. 定位
 
-服务端运行在 Linux 上，核心进程是 `gateway/server.mjs`。它负责把 HarmonyOS
-客户端的请求转换为受控的 OpenCode 操作。
+服务端运行在 Linux（ECS）上，核心进程是 `gateway/server.mjs`。它把 HarmonyOS 客户端的请求
+转换为受控的 OpenCode 操作，并保证**按设备隔离**。
 
 服务端职责：
 
-- 开放注册 + 为设备自动分配注册码 + 设备签名认证（Ed25519）。
-- 签发和刷新移动端 token。
-- 管理可访问项目。
-- 管理 OpenCode 会话（列表/恢复/消息）与按设备归属隔离。
+- 开放注册 + 为设备自动分配注册码 + Ed25519 设备签名认证。
+- 签发和刷新访问令牌。
+- 管理 OpenCode 会话（列表/创建/恢复/重命名/归档/删除/消息）并做**设备归属校验**。
 - 登记并按设备展示会话产出的文件。
 - 下发 TURN/ICE 配置。
+- 提供健康检查与任务占位接口。
 
 服务端不做：
 
-- 不提供任意 shell API。
-- 不让手机直接 SSH 到服务器。
-- 不把 OpenAI API Key 返回给客户端。
-- 不允许客户端提交任意本地文件路径。
+- 不提供任意 shell API；不让手机直接 SSH。
+- 不把 AI 供应商 API Key 返回给客户端。
+- 不接受客户端提交任意文件系统路径。
 
 ## 2. 总体架构
 
 ```text
 HarmonyOS App
-  -> HTTPS
+  -> HTTPS(8443) / HTTP(8080)
 gateway/server.mjs
-  -> Auth service
-  -> OpenCode adapter
-opencode CLI / opencode serve
-  -> Git workspaces
+  -> auth.mjs / db.mjs (SQLite)
+  -> file-service.mjs
+  -> opencode-server.mjs
+       -> opencode serve (HTTP, 127.0.0.1:4096)
+       -> opencode db (CLI, 读取会话列表)
+  -> 服务器文件系统（OPENCODE_WORKDIR，如 /root）
 ```
 
-MVP 推荐：
+技术栈：
 
-- 语言：Node.js、Go 或 Rust 任选其一。
-- 数据库：SQLite。
-- 生产环境：PostgreSQL 可作为团队版升级。
-- 进程管理：systemd。
-- HTTPS：Caddy 或 Nginx 反向代理。
-- 运行用户：独立低权限用户 `codexrouter`。
+- 运行时：Node.js 22+。
+- 数据库：SQLite（`better-sqlite3`）。
+- 进程管理：systemd（`codex-router.service`）。
+- TLS：由网关直接使用证书监听 HTTPS（`GATEWAY_TLS_KEY/CERT`），无需反向代理。
 
-## 3. 服务地址
+## 3. 服务地址与端口
 
-默认监听：
+| 入口 | 默认 | 说明 |
+|---|---|---|
+| HTTPS | `0.0.0.0:8443` | 主入口，App 使用 |
+| HTTP | `0.0.0.0:8080` | 调试入口 |
 
-```text
-127.0.0.1:8443
+健康检查：
+
+```http
+GET /health
+-> { "status": "ok", "sessionName": "opencode-main" }
 ```
 
-推荐通过反向代理暴露 HTTPS：
+App **内置固定服务器地址**（`entry/src/main/ets/model/AppConfig.ets`）并使用**证书固定**校验，
+因此生产环境的地址与证书必须与 App 内置一致。
 
-```text
-https://codex.example.com
-https://192.168.1.10:8443
-```
+## 4. 环境变量
 
-客户端可以只输入 IP。客户端负责把 `192.168.1.10` 规范化为
-`https://192.168.1.10:8443`。服务端只需要正常处理 HTTPS 请求。
-
-## 4. 配置文件
-
-示例：
-
-```yaml
-serverName: codex-main
-publicBaseUrl: https://192.168.1.10:8443
-listen: 127.0.0.1:8443
-
-auth:
-  accessTokenTtlSeconds: 3600
-  refreshTokenTtlDays: 30
-  maxLoginFailures: 5
-  loginLockSeconds: 300
-
-codex:
-  binary: /usr/local/bin/opencode
-  defaultSandbox: workspace-write
-  allowNetworkByDefault: false
-  taskRoot: /srv/codex-router/tasks
-
-projects:
-  - id: codex-router
-    name: AIRouter
-    path: /srv/projects/CodexRouter
-    defaultBranch: main
-    permissions:
-      - task:create
-      - task:read
-      - task:write
-      - diff:read
-      - approval:review
-```
-
-配置要求：
-
-- `serverName` 用于返回给客户端作为默认连接名。
-- `projects[].path` 必须是服务端白名单路径。
-- 客户端只能通过 `projectId` 访问项目，不能提交任意路径。
-- `allowNetworkByDefault` 默认关闭。
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `GATEWAY_HOST` | `0.0.0.0` | 监听地址 |
+| `GATEWAY_PORT` | `8443` | HTTPS 端口 |
+| `GATEWAY_HTTP_PORT` | `8080` | HTTP 端口 |
+| `GATEWAY_TLS_KEY` / `GATEWAY_TLS_CERT` | - | TLS 证书路径 |
+| `OPENCODE_COMMAND` | `opencode` | opencode 可执行文件 |
+| `OPENCODE_WORKDIR` | `$HOME` | opencode 工作目录 / 文件根目录 |
+| `OPENCODE_SERVER_URL` | `http://127.0.0.1:4096` | opencode serve 地址 |
+| `AI_ROUTER_SIGNING_KEY_PATH` | `./keys/jwt-signing.pem` | Ed25519 签名私钥 |
+| `AI_ROUTER_SIGNING_PUB_PATH` | `./keys/jwt-signing.pub` | 签名公钥 |
+| `AI_ROUTER_SIGNING_PUB_PREV_PATH` | `<pub>.prev` | 轮换前的上一个公钥（可选） |
+| `AI_ROUTER_DB_PATH` | `./data/devices.db` | SQLite 数据库路径 |
+| `COTURN_HOST/PORT/USER/PASS` | - | TURN/STUN 配置 |
 
 ## 5. 设备认证
 
-服务端维护注册码与已激活设备表，不依赖 Linux 系统账号。流程为
-`register` → `challenge` → `activate`（见 [device-auth-design.md](device-auth-design.md)）。
+不依赖 Linux 系统账号，无用户名/密码。流程：
 
-注册请求：
-
-```http
-POST /api/auth/register
-Content-Type: application/json
+```text
+POST /api/auth/register    { deviceId, publicKey }                -> { activationToken, challenge, registrationCode }
+POST /api/auth/activate    { deviceId, activationToken, signedChallenge } -> { accessToken, refreshToken, registrationCode }
+POST /api/auth/challenge   { deviceId }                           -> { nonce, expiresAt }
+POST /api/auth/verify      { deviceId, nonce, signature }         -> { accessToken, refreshToken }
+POST /api/auth/refresh     { refreshToken }                       -> { accessToken }
+POST /api/auth/logout      { refreshToken }                       -> { ok: true }
+POST /api/auth/reregister  { deviceId, publicKey, mode }          -> tokens（mode="reset"，无需注册码）
+GET  /api/auth/me                                                 -> { deviceId, sessionName, registrationCode }
 ```
 
-```json
-{
-  "registrationCode": "xxxx",
-  "deviceName": "HarmonyOS Phone",
-  "publicKey": "<设备 Ed25519 公钥>"
-}
-```
+规则：
 
-激活请求：
-
-```http
-POST /api/auth/activate
-```
-
-登录响应：
-
-```json
-{
-  "accessToken": "...",
-  "refreshToken": "...",
-  "codexSessionName": "codex-main",
-  "expiresIn": 3600
-}
-```
-
-认证规则：
-
-- 密码只保存哈希。
-- 哈希算法使用 Argon2id，bcrypt 可作为备选。
-- 登录失败按用户名和 IP 限流。
-- 连续失败达到阈值后短暂锁定。
-- 登录成功、登录失败、登出都写入审计日志。
+- **注册开放**：`register` 只需 `deviceId` 与设备公钥；服务器为该设备**自动分配注册码**并绑定（不可更改/换绑）。
+- 设备用私钥对挑战签名完成 `activate`；`verify` 用于已注册设备登录。
+- 访问令牌为 Ed25519 签名的 JWT（约 15 分钟）；刷新令牌 7 天、存哈希。
+- 速率限制：register/activate/challenge/verify/refresh/reregister 分别限流。
+- 签名密钥支持轮换：验证访问令牌时依次尝试当前与 `.prev` 公钥。
 
 ## 6. Token 策略
 
-Access token：
+- **Access Token**：Ed25519 JWT，约 15 分钟，放在 `authorization: Bearer <token>`。
+- **Refresh Token**：`rt-<uuid>`，服务端只存 `sha256` 哈希，7 天有效，可注销/吊销。
+- 重建服务器签名密钥会使所有旧访问令牌失效；刷新令牌存库，不受影响。
 
-- 生命周期短，推荐 15-60 分钟。
-- 用于普通 API 请求。
-- 客户端放在内存和系统安全存储中。
+## 7. 项目
 
-Refresh token：
-
-- 生命周期较长，推荐 30 天。
-- 与设备绑定。
-- 服务端只保存哈希。
-- 支持撤销。
-
-刷新接口：
-
-```http
-POST /api/auth/refresh
-Authorization: Bearer <refreshToken>
-```
-
-撤销场景：
-
-- 用户登出。
-- 用户删除连接。
-- 管理员禁用用户。
-- 管理员撤销某台设备。
-
-## 7. 项目访问
-
-项目由服务端配置，客户端只能读取白名单项目。
-
-项目列表接口：
-
-```http
-GET /api/projects
-Authorization: Bearer <accessToken>
-```
-
-返回：
+`GET /api/projects` 返回服务端配置的固定项目：
 
 ```json
-{
-  "items": [
-    {
-      "id": "codex-router",
-      "name": "AIRouter",
-      "defaultBranch": "main",
-      "status": "ready",
-      "permissions": [
-        "task:create",
-        "task:read",
-        "task:write",
-        "diff:read",
-        "approval:review"
-      ]
-    }
-  ]
-}
+{ "items": [ { "id": "codex-router", "name": "AI Router", "defaultBranch": "master", "status": "ready", "permissions": ["task:create", "task:read", "task:write", "diff:read", "approval:review"] } ] }
 ```
 
-安全规则：
+## 8. OpenCode 适配层
 
-- 所有任务必须绑定到 `projectId`。
-- `projectId` 必须存在于服务端配置。
-- 服务端不接受客户端传入的绝对路径。
-- 每个任务建议使用独立 worktree 或任务目录。
+`gateway/opencode-server.mjs` 的 `OpenCodeServerClient` 是服务端与 OpenCode 的边界：
 
-## 8. Codex Adapter
+- 启动/复用 `opencode serve`（`ensureReady`），`OPENCODE_WORKDIR` 作为进程 cwd。
+- `listResumes`：通过 `opencode db "select … from session …" --format json` 读取会话列表（带短 TTL 缓存，变更时失效）。
+- `readResume`：HTTP `GET /session/:id` 与 `GET /session/:id/message`，并映射为会话回合；同时用 `extractFilePathsFromMessages` 提取产出文件。
+- `sendResumeMessage`：使用 **`POST /session/:id/prompt_async`**（发送即返回 204，不等待生成），随后读取快照。
+- `renameResume` / `archiveResume` / `deleteResume`：重命名走 HTTP PATCH，归档/删除走 opencode CLI。
+- 每请求可携带 `directory` 参数（前向兼容；当前 opencode 版本不据此切换目录）。
 
-`CodexAdapter` 是服务端内部边界，用于隔离 API 层和真实 Codex 执行方式。
-
-MVP 可以先封装 Codex CLI：
-
-- 在指定项目目录启动 Codex。
-- 向 Codex 传递用户任务描述。
-- 捕获输出。
-- 生成任务事件。
-- 停止任务。
-- 获取 diff。
-
-后续如果需要更深会话、审批和事件集成，再评估 `opencode serve`。
-
-内部接口：
-
-```ts
-interface CodexAdapter {
-  startTask(input: StartTaskInput): Promise<TaskHandle>;
-  appendMessage(taskId: string, message: string): Promise<void>;
-  stopTask(taskId: string): Promise<void>;
-  getDiff(taskId: string): Promise<DiffResult>;
-}
-```
-
-任务启动参数：
-
-```ts
-interface StartTaskInput {
-  taskId: string;
-  projectId: string;
-  projectPath: string;
-  message: string;
-  sandbox: "read-only" | "workspace-write" | "danger-full-access";
-  networkEnabled: boolean;
-  userId: string;
-}
-```
-
-## 9. 任务状态机
-
-状态：
-
-```text
-queued
-running
-waiting_approval
-completed
-failed
-stopped
-```
-
-流转：
-
-```text
-queued -> running
-running -> waiting_approval
-waiting_approval -> running
-running -> completed
-running -> failed
-running -> stopped
-waiting_approval -> stopped
-```
-
-规则：
-
-- 任务创建后进入 `queued`。
-- Codex 进程启动后进入 `running`。
-- 需要用户审批时进入 `waiting_approval`。
-- 用户批准后回到 `running`。
-- 用户拒绝高风险操作时，可继续运行或停止，取决于 Codex 返回状态。
-- 用户主动停止时进入 `stopped`。
-
-## 10. 任务 API
-
-创建任务：
+## 9. 会话 API（按设备隔离）
 
 ```http
-POST /api/projects/{projectId}/tasks
-Authorization: Bearer <accessToken>
-Content-Type: application/json
+GET    /api/opencode/resumes                 仅返回本设备会话
+POST   /api/opencode/resumes                 创建会话（写入设备归属）
+POST   /api/opencode/resumes/{id}/resume     恢复（校验归属，非本设备 404）
+POST   /api/opencode/resumes/{id}/name       重命名（校验归属）
+POST   /api/opencode/resumes/{id}/archive    归档（校验归属）
+DELETE /api/opencode/resumes/{id}            删除（校验归属）
+POST   /api/opencode/resumes/{id}/messages   发送消息（校验归属，异步返回）
 ```
 
-```json
-{
-  "message": "修复登录页崩溃，并运行测试",
-  "sandbox": "workspace-write",
-  "networkEnabled": false
-}
-```
+归属通过 `device_sessions(thread_id → device_id)` 持久化，gateway 重启不丢；
+`requireThreadOwnership` 对非归属方返回 404（不泄漏会话存在）。
 
-返回：
-
-```json
-{
-  "taskId": "task_01JZ0001",
-  "status": "queued"
-}
-```
-
-追加消息：
+## 10. 任务 API（占位）
 
 ```http
-POST /api/tasks/{taskId}/messages
-Authorization: Bearer <accessToken>
+POST /api/projects/{projectId}/tasks   { message, sandbox?, networkEnabled? } -> { taskId, status: "queued" }
+GET  /api/tasks/{taskId}               查询任务状态
 ```
 
-```json
-{
-  "message": "继续修复失败的单元测试"
-}
-```
+当前任务为内存态占位实现（创建即 `queued`），实际的 AI 交互通过会话消息完成。
 
-停止任务：
+## 11. 文件（会话 → 文件归属）
 
-```http
-POST /api/tasks/{taskId}/stop
-Authorization: Bearer <accessToken>
-```
+openCode 实际在 `OPENCODE_WORKDIR` 下读写文件，且不按会话切换目录，因此文件隔离采用**登记式归属**：
 
-获取 diff：
+- 读会话时从消息 parts（`file` part 的 filename；`write/edit/patch` 等工具 input/metadata 中的路径；bash 命令/输出中的路径）与会话 diff 提取文件路径。
+- 路径经 `session_files(thread_id, device_id, path, name, size, modified_at)` 登记，按设备归属。
+- `GET /api/files`：只列本设备登记过的文件，返回**扁平文件名（basename）**、size、modifiedAt。
+- `GET /api/files/{name}/download`：必须精确命中本设备登记记录（否则 404），流式下载。
 
-```http
-GET /api/tasks/{taskId}/diff
-Authorization: Bearer <accessToken>
-```
-
-## 11. 事件流
-
-客户端通过 WebSocket 接收任务事件。
-
-```text
-WS /api/tasks/{taskId}/stream
-```
-
-事件类型：
-
-```text
-task.status
-codex.output
-command.started
-command.finished
-approval.requested
-approval.resolved
-file.changed
-test.result
-task.summary
-error
-```
-
-事件示例：
-
-```json
-{
-  "type": "task.status",
-  "taskId": "task_01JZ0001",
-  "status": "running",
-  "createdAt": "2026-07-01T12:00:00+08:00"
-}
-```
-
-输出事件：
-
-```json
-{
-  "type": "codex.output",
-  "taskId": "task_01JZ0001",
-  "content": "Running tests...",
-  "sequence": 42
-}
-```
-
-## 12. 审批
-
-当 Codex 需要执行敏感操作时，服务端生成审批请求。
-
-审批请求字段：
-
-```json
-{
-  "approvalId": "appr_001",
-  "taskId": "task_01JZ0001",
-  "risk": "medium",
-  "action": "run_command",
-  "command": "npm install",
-  "reason": "Install missing dependencies for the project",
-  "createdAt": "2026-07-01T12:00:00+08:00"
-}
-```
-
-审批接口：
-
-```http
-POST /api/approvals/{approvalId}/approve
-Authorization: Bearer <accessToken>
-```
-
-```http
-POST /api/approvals/{approvalId}/reject
-Authorization: Bearer <accessToken>
-```
-
-规则：
-
-- 审批只允许有 `approval:review` 权限的用户操作。
-- 批准和拒绝都写入审计日志。
-- 高风险操作必须在客户端显示明确风险。
-- 服务端不得把审批简化为自动通过。
-
-## 13. 数据模型
-
-MVP 最少需要这些表。
+## 12. 数据模型（SQLite）
 
 ```sql
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  username TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  disabled_at TEXT,
-  created_at TEXT NOT NULL
+CREATE TABLE devices (
+  device_id TEXT PRIMARY KEY,
+  public_key_pem TEXT NOT NULL,
+  device_name TEXT DEFAULT '',
+  registered_at TEXT,
+  last_seen_at TEXT,
+  status TEXT DEFAULT 'active'
 );
 
 CREATE TABLE refresh_tokens (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  device_name TEXT NOT NULL,
-  token_hash TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  revoked_at TEXT,
-  created_at TEXT NOT NULL,
-  last_used_at TEXT
+  token_hash TEXT PRIMARY KEY,
+  device_id TEXT,
+  created_at TEXT,
+  expires_at TEXT
 );
 
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  title TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  completed_at TEXT
+CREATE TABLE activation_nonces (
+  nonce TEXT PRIMARY KEY,
+  device_id TEXT,
+  activation_token TEXT UNIQUE,
+  public_key_pem TEXT,
+  registration_code TEXT,
+  created_at TEXT,
+  expires_at TEXT,
+  used INTEGER DEFAULT 0
 );
 
-CREATE TABLE approvals (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
-  user_id TEXT,
-  risk TEXT NOT NULL,
-  action TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  resolved_at TEXT
+CREATE TABLE login_nonces (
+  nonce TEXT PRIMARY KEY,
+  device_id TEXT,
+  created_at TEXT,
+  expires_at TEXT,
+  used INTEGER DEFAULT 0
 );
 
-CREATE TABLE audit_logs (
-  id TEXT PRIMARY KEY,
-  user_id TEXT,
-  task_id TEXT,
-  action TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
+CREATE TABLE registration_codes (
+  code TEXT PRIMARY KEY,
+  used INTEGER DEFAULT 0,
+  uses INTEGER DEFAULT 0,
+  max_uses INTEGER DEFAULT -1,
+  used_by_device TEXT DEFAULT NULL,
+  used_at TEXT DEFAULT NULL
+);
+
+CREATE TABLE device_sessions (
+  thread_id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  created_at TEXT
+);
+
+CREATE TABLE session_files (
+  thread_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  size INTEGER DEFAULT 0,
+  modified_at TEXT DEFAULT '',
+  created_at TEXT,
+  PRIMARY KEY (thread_id, path)
 );
 ```
 
-## 14. 错误格式
+启动时会做兼容迁移：`registration_codes(used_by_device)` 去重后建唯一索引（一设备一码）。
 
-所有 API 错误统一返回：
+## 13. 错误格式
 
 ```json
-{
-  "error": {
-    "code": "invalid_credentials",
-    "message": "用户名或密码错误",
-    "requestId": "req_01JZ0001"
-  }
-}
+{ "error": { "code": "invalid_request", "message": "…", "requestId": "req_<uuid>" } }
 ```
 
-常用错误码：
+常用错误码：`invalid_request`、`invalid_code`、`token_missing`、`token_expired`、
+`device_mismatch`、`invalid_signature`、`session_not_found`、`file_not_found`、
+`files_root_unset`、`rate_limited`、`gateway_unavailable`。
 
-```text
-invalid_credentials
-token_expired
-permission_denied
-project_not_found
-task_not_found
-approval_not_found
-gateway_unavailable
-codex_failed
-rate_limited
-```
+## 14. 安全边界
 
-## 15. 安全边界
+- 全链路 HTTPS；App 使用**证书固定**，只信任内置证书对应的服务器。
+- App 不直连 SSH，不持有 AI 供应商 API Key。
+- 会话与文件按 `deviceId` 归属隔离（列表 + 下载均校验）。
+- 设备私钥保存在客户端 HUKS，服务端只存公钥。
+- 接口限流；敏感操作（注册/激活/登录）限流更严格。
+- 注册码绑定设备且不可换绑；服务器签名密钥支持轮换。
 
-必须满足：
+## 15. Linux 部署
 
-- 全链路 HTTPS。
-- App 不直连 SSH。
-- App 不持有 OpenAI API Key。
-- Gateway 使用低权限 Linux 用户运行。
-- 项目路径必须白名单化。
-- 不暴露任意命令执行接口。
-- 敏感操作必须走审批。
-- 登录、登出、任务、审批、删除连接都写审计日志。
-
-推荐增强：
-
-- 使用 Tailscale、WireGuard 或 ZeroTier 做私有网络访问。
-- 对公网部署添加 IP 白名单。
-- 每个任务使用独立 worktree。
-- 定期清理过期任务目录和过期 refresh token。
-
-## 16. Linux 部署
-
-推荐目录：
+部署目录（当前 ECS `8.153.174.88`）：
 
 ```text
 /opt/codex-router/
-  codex-gateway
-  config.yaml
-  data/
-    gateway.db
-  logs/
-
-/srv/projects/
-  CodexRouter/
-
-/srv/codex-router/tasks/
+  codex-router-master/        # git clone（master）
+    gateway/                  # 网关源码
+    data/devices.db           # SQLite（AI_ROUTER_DB_PATH 默认 ./data/devices.db）
+    keys/jwt-signing.pem|pub  # Ed25519 签名密钥
+  certs/                      # TLS 证书
 ```
 
-systemd 示例：
+systemd 单元（`/etc/systemd/system/codex-router.service`）：
 
 ```ini
 [Unit]
-Description=AIRouter Gateway
+Description=Codex Router Gateway
 After=network.target
 
 [Service]
-User=codexrouter
-WorkingDirectory=/opt/codex-router
-ExecStart=/opt/codex-router/codex-gateway serve --config /opt/codex-router/config.yaml
-Restart=on-failure
-Environment=NODE_ENV=production
+Type=simple
+WorkingDirectory=/opt/codex-router/codex-router-master
+ExecStart=/usr/bin/node gateway/server.mjs
+Environment=OPENCODE_COMMAND=opencode
+Environment=OPENCODE_WORKDIR=/root
+Environment=GATEWAY_HOST=0.0.0.0
+Environment=GATEWAY_PORT=8443
+Environment=GATEWAY_HTTP_PORT=8080
+Environment=GATEWAY_TLS_KEY=/opt/codex-router/certs/key.pem
+Environment=GATEWAY_TLS_CERT=/opt/codex-router/certs/cert.pem
+Environment=COTURN_HOST=8.153.174.88
+Environment=COTURN_PORT=3478
+Environment=COTURN_USER=codexrouter
+Environment=COTURN_PASS=***
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-运维命令：
+运维脚本见 `scripts/`（部署、证书、签名密钥轮换、注册码/设备管理）。
 
-```bash
-codex-gateway user create alice
-codex-gateway user disable alice
-codex-gateway token revoke --user alice --device "HarmonyOS Phone"
-codex-gateway serve --config /opt/codex-router/config.yaml
-```
+## 16. 测试与验收
 
-## 17. MVP 验收标准
-
-- Gateway 能在 Linux 上作为 systemd 服务运行。
-- 用户可以通过用户名密码登录。
-- 登录成功返回 `accessToken`、`refreshToken` 和 `codexSessionName`。
-- 客户端可以使用 refresh token 恢复会话。
-- 服务端只返回白名单项目。
-- 客户端不能提交任意文件路径。
-- 用户可以创建 Codex 任务。
-- 客户端可以通过 WebSocket 接收任务事件。
-- 敏感操作可以生成审批请求。
-- 审批通过和拒绝都写入审计日志。
-- 删除连接时可以撤销对应 refresh token。
-- 服务端不提供任意 shell API。
+- 网关测试：`cd gateway && node --test server.test.mjs opencode-server.test.mjs`（当前 **35/35 通过**）。
+- 覆盖：注册/激活/挑战/验证/刷新、会话归属与越权拦截、文件登记与下载、错误与限流。
+- 验收要点：
+  - `curl -k https://<host>:8443/health` 返回 `{"status":"ok",…}`。
+  - 注册开放、自动分配设备码；重复注册沿用同一码。
+  - 设备 A 无法列出/下载设备 B 的会话与文件。
+  - App 内置固定地址与证书即可连接，无需用户配置。
