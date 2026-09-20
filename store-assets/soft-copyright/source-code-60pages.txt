@@ -1532,49 +1532,6 @@ export function resolveCarouselSwipeIndex(currentIndex: number, itemCount: numbe
 
   return resolveCarouselIndex(currentIndex, itemCount);
 ==== 第 31 页 ====
-  const title = normalizeString(session?.title) || normalizeString(session?.slug) || id;
-  const subtitle = normalizeString(session?.directory) || normalizeString(session?.path);
-
-  return {
-    id,
-    title,
-    subtitle,
-    status: session?.time?.archived ? 'archived' : 'idle',
-    updatedAt: timestampToIso(session?.time?.updated || session?.time?.created)
-  };
-}
-
-export function mapOpenCodeMessagesToResumeTurns(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages.map((message, index) => {
-    const info = message?.info ?? {};
-    const messageId = normalizeString(info.id) || `message-${index + 1}`;
-    const role = normalizeRole(info.role);
-    const status = resolveMessageStatus(info);
-    const turn = {
-      id: messageId,
-      status,
-      startedAt: timestampToIso(info.time?.created),
-      completedAt: timestampToIso(info.time?.completed),
-      items: Array.isArray(message?.parts) ? message.parts
-        .map((part, partIndex) => mapOpenCodePartToResumeContent(messageId, role, part, partIndex))
-        .filter(Boolean) : []
-    };
-    return turn;
-  }).filter((turn) => turn.items.length > 0 || isActiveStatus(turn.status));
-}
-
-export function mapOpenCodeSessionToResumeSession(session, messages = []) {
-  const item = mapOpenCodeSessionToResumeItem(session);
-  const turns = mapOpenCodeMessagesToResumeTurns(messages);
-  const running = turns.some((turn) => isActiveStatus(turn.status));
-
-  return {
-    threadId: item.id,
-    title: item.title,
     cwd: item.subtitle,
     status: running ? 'running' : item.status,
     turns
@@ -1582,7 +1539,6 @@ export function mapOpenCodeSessionToResumeSession(session, messages = []) {
 }
 
 // 会把文件写入磁盘的工具（read 之类的只读工具不计入）。
-==== 第 32 页 ====
 const FILE_PRODUCING_TOOLS = new Set([
   'write', 'edit', 'patch', 'apply_patch', 'multiedit', 'create', 'write_file', 'str_replace_editor'
 ]);
@@ -1626,6 +1582,7 @@ export function extractFilePathsFromMessages(messages) {
         continue;
       }
       if (type !== 'tool') {
+==== 第 32 页 ====
         continue;
       }
 
@@ -1633,7 +1590,6 @@ export function extractFilePathsFromMessages(messages) {
       const state = part?.state ?? {};
 
       if (FILE_PRODUCING_TOOLS.has(toolName)) {
-==== 第 33 页 ====
         // 不同工具/版本字段名不一（filePath / file_path / path / filename …）。
         for (const value of pickPathLikeValues(state.input)) {
           add(value);
@@ -1677,6 +1633,7 @@ export function extractFilePathsFromDiff(diff) {
       paths.add(path);
     }
   };
+==== 第 33 页 ====
   for (const entry of diff) {
     if (!entry || typeof entry !== 'object') {
       continue;
@@ -1684,7 +1641,6 @@ export function extractFilePathsFromDiff(diff) {
     add(entry.file);
     add(entry.path);
     add(entry.filename);
-==== 第 34 页 ====
     for (const value of pickPathLikeValues(entry)) {
       add(value);
     }
@@ -1728,6 +1684,7 @@ function pickPathLikeValues(source) {
   }
   const values = [];
   for (const [key, value] of Object.entries(source)) {
+==== 第 34 页 ====
     if (typeof value === 'string' && value.length > 0 && value.length < 1024 && /file|path/i.test(key)) {
       values.push(value);
     }
@@ -1735,7 +1692,6 @@ function pickPathLikeValues(source) {
   return values;
 }
 
-==== 第 35 页 ====
 export class OpenCodeServerClient {
   constructor(options = {}) {
     this.url = stripTrailingSlash(options.url ?? process.env.OPENCODE_SERVER_URL ?? DEFAULT_OPENCODE_SERVER_URL);
@@ -1779,6 +1735,7 @@ export class OpenCodeServerClient {
     const rows = await this.querySessions(limit);
     this.sessionsCache.set(limit, { at: now, rows });
     return rows;
+==== 第 35 页 ====
   }
 
   invalidateSessionsCache() {
@@ -1786,7 +1743,6 @@ export class OpenCodeServerClient {
   }
 
   async readResume(options = {}) {
-==== 第 36 页 ====
     const threadId = requireThreadId(options.threadId);
     const directory = normalizeString(options.directory);
     const session = await this.request(`/session/${encodeURIComponent(threadId)}`, { directory });
@@ -1830,6 +1786,7 @@ export class OpenCodeServerClient {
     const message = normalizeString(options.message);
     if (message.length === 0) {
       throw new Error('message is required');
+==== 第 36 页 ====
     }
 
     // prompt_async：发送即返回 204，不等待生成完成；结果由客户端轮询 /resume 获取（不阻塞、不取消生成）。
@@ -1837,7 +1794,6 @@ export class OpenCodeServerClient {
       method: 'POST',
       body: {
         parts: [
-==== 第 37 页 ====
           {
             type: 'text',
             text: message
@@ -1881,6 +1837,7 @@ export class OpenCodeServerClient {
     if (name.length === 0) {
       throw new Error('name is required');
     }
+==== 第 37 页 ====
 
     await this.request(`/session/${encodeURIComponent(threadId)}`, {
       method: 'PATCH',
@@ -1888,7 +1845,6 @@ export class OpenCodeServerClient {
         title: name
       },
       directory: normalizeString(options.directory)
-==== 第 38 页 ====
     });
     this.invalidateSessionsCache();
   }
@@ -1932,6 +1888,7 @@ export class OpenCodeServerClient {
     });
     if (!response?.ok) {
       throw new Error(`opencode server request failed: ${response?.status ?? 'no response'}`);
+==== 第 38 页 ====
     }
 
     const text = await response.text();
@@ -1939,7 +1896,6 @@ export class OpenCodeServerClient {
   }
 
   async ensureReady() {
-==== 第 39 页 ====
     if (await this.isReady()) {
       return;
     }
@@ -1983,6 +1939,7 @@ export class OpenCodeServerClient {
     };
     if (this.platform === 'win32') {
       spawnOptions.shell = true;
+==== 第 39 页 ====
       spawnOptions.windowsHide = true;
     }
 
@@ -1990,7 +1947,6 @@ export class OpenCodeServerClient {
       'serve',
       '--hostname',
       listenUrl.hostname,
-==== 第 40 页 ====
       '--port',
       listenUrl.port || '4096',
       '--print-logs'
@@ -2034,6 +1990,7 @@ function mapOpenCodeDbSessionToSession(row) {
     path: row?.path,
     time: {
       created: row?.time_created,
+==== 第 40 页 ====
       updated: row?.time_updated,
       archived: row?.time_archived
     }
@@ -2041,7 +1998,6 @@ function mapOpenCodeDbSessionToSession(row) {
 }
 
 function mapOpenCodePartToResumeContent(messageId, role, part, partIndex) {
-==== 第 41 页 ====
   const partId = normalizeString(part?.id) || `part-${partIndex + 1}`;
   const type = normalizeString(part?.type) || 'part';
 
@@ -2085,6 +2041,7 @@ function resumeContent(id, role, kind, text, status) {
   };
 }
 
+==== 第 41 页 ====
 function normalizePartText(value) {
   if (typeof value === 'string') {
     return value.trim();
@@ -2092,7 +2049,6 @@ function normalizePartText(value) {
 
   if (Array.isArray(value)) {
     return value.map(normalizePartText).filter(Boolean).join('\n');
-==== 第 42 页 ====
   }
 
   if (value && typeof value === 'object') {
@@ -2136,6 +2092,7 @@ function truncateText(value) {
     return value;
   }
 
+==== 第 42 页 ====
   return `${value.slice(0, MAX_PART_TEXT_LENGTH)}\n...`;
 }
 
@@ -2143,7 +2100,6 @@ function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-==== 第 43 页 ====
 /** 只取路径的文件名部分（兼容 `/`、`\`）。 */
 function baseName(value) {
   const text = normalizeString(value).replace(/\\/g, '/');
@@ -2187,6 +2143,7 @@ function escapeSqlLiteral(value) {
 }
 
 function runCommand(spawnCommand, command, args, options = {}) {
+==== 第 43 页 ====
   return new Promise((resolve, reject) => {
     const spawnOptions = {
       cwd: options.cwd,
@@ -2194,7 +2151,6 @@ function runCommand(spawnCommand, command, args, options = {}) {
     };
     if (options.platform === 'win32') {
       spawnOptions.shell = true;
-==== 第 44 页 ====
       spawnOptions.windowsHide = true;
     }
 
@@ -2238,6 +2194,7 @@ export class RateLimiter {
 
     this.#cleanupTimer = setInterval(() => this.#cleanup(), CLEANUP_INTERVAL_MS);
     if (this.#cleanupTimer.unref) {
+==== 第 44 页 ====
       this.#cleanupTimer.unref();
     }
   }
@@ -2245,7 +2202,6 @@ export class RateLimiter {
   check(key) {
     const now = Date.now();
     const entry = this.#clients.get(key);
-==== 第 45 页 ====
 
     if (!entry || now >= entry.resetAt) {
       this.#clients.set(key, { count: 1, resetAt: now + this.#windowMs });
@@ -2289,6 +2245,7 @@ export function getClientIp(request) {
 }
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
+==== 第 45 页 ====
 const FIVE_MINUTES = 5 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
 
@@ -2296,7 +2253,6 @@ export const registerLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
 export const activateLimiter = new RateLimiter(FIVE_MINUTES, 3);
 export const challengeLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
 export const verifyLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
-==== 第 46 页 ====
 export const refreshLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
 export const reregisterLimiter = new RateLimiter(ONE_HOUR, 3);
 import http from 'node:http';
@@ -2340,6 +2296,7 @@ import {
   upsertSessionFile,
   listSessionFileRecords,
 } from './db.mjs';
+==== 第 46 页 ====
 
 const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 8443;
@@ -2347,7 +2304,6 @@ const DEFAULT_PORT = 8443;
 const PROJECT = {
   id: 'codex-router',
   name: 'AI Router',
-==== 第 47 页 ====
   defaultBranch: 'master',
   status: 'ready',
   permissions: ['task:create', 'task:read', 'task:write', 'diff:read', 'approval:review']
@@ -2391,6 +2347,7 @@ function bearerToken(request) {
 function normalizeResumeCwd(value) {
   const cwd = typeof value === 'string' ? value.trim() : '';
   return cwd.length > 0 ? cwd : '~';
+==== 第 47 页 ====
 }
 
 function requireAuth(request, response) {
@@ -2398,7 +2355,6 @@ function requireAuth(request, response) {
   if (!token) {
     errorResponse(response, 401, 'token_missing', 'Authorization token required');
     return null;
-==== 第 48 页 ====
   }
   const payload = verifyAccessToken(token);
   if (!payload) {
@@ -2442,6 +2398,7 @@ function recordSessionFiles(deviceId, threadId, paths) {
     if (absolute !== root && !absolute.startsWith(root + path.sep)) {
       continue;
     }
+==== 第 48 页 ====
     if (!isAllowedFile(absolute)) {
       continue;
     }
@@ -2449,7 +2406,6 @@ function recordSessionFiles(deviceId, threadId, paths) {
     try {
       stats = fs.statSync(absolute);
     } catch (error) {
-==== 第 49 页 ====
       continue;
     }
     if (!stats.isFile()) {
@@ -2464,6 +2420,87 @@ function recordSessionFiles(deviceId, threadId, paths) {
   }
 }
 
+// 工作区扫描时跳过的目录（避免遍历依赖/构建产物）。
+const SKIPPED_DIRS = new Set([
+  'node_modules', '.git', '.svn', '.hg', 'build', '.build',
+  'cache', 'dist', 'out', 'target', 'cert', 'keys', 'data'
+]);
+
+function walkAllowedFiles(dir, depth, onFile) {
+  if (depth < 0) {
+    return;
+  }
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || SKIPPED_DIRS.has(entry.name)) {
+        continue;
+      }
+      walkAllowedFiles(full, depth - 1, onFile);
+    } else if (entry.isFile() && !entry.name.startsWith('.') && isAllowedFile(entry.name)) {
+      onFile(full);
+    }
+  }
+}
+
+==== 第 49 页 ====
+/**
+ * 汇总某设备可见的文件：已登记（session_files）的文件 ∪ 本设备专属工作区目录下的实际文件。
+ * 工作区目录按 sha256(deviceId) 生成，天然按设备隔离；两者都限定在设备范围内。
+ * 对外统一用扁平文件名（basename），按 basename 去重。
+ */
+function collectDeviceFiles(deviceId) {
+  const filesRoot = resolveFilesRoot();
+  if (!filesRoot) {
+    return [];
+  }
+  const root = path.resolve(filesRoot);
+  const byName = new Map();
+
+  const add = (absolute) => {
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+      return;
+    }
+    if (!isAllowedFile(absolute)) {
+      return;
+    }
+    let stats;
+    try {
+      stats = fs.statSync(absolute);
+    } catch (error) {
+      return;
+    }
+    if (!stats.isFile()) {
+      return;
+    }
+    const name = path.basename(absolute);
+    if (name.length === 0 || byName.has(name)) {
+      return;
+    }
+    byName.set(name, { name, path: absolute, size: stats.size, modifiedAt: stats.mtime.toISOString() });
+  };
+
+  // 1) 已登记文件
+  for (const row of listSessionFileRecords(deviceId)) {
+    add(path.resolve(root, row.name));
+  }
+
+  // 2) 本设备专属工作区目录下的实际文件
+  const workspace = deviceWorkspace(root, deviceId);
+  if (workspace) {
+    walkAllowedFiles(workspace, 4, add);
+  }
+
+  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+==== 第 50 页 ====
 function createGatewayHandler(options = {}) {
   const tasks = new Map();
   const opencodeClient = options.opencodeClient ?? new OpenCodeServerClient();
@@ -2500,7 +2537,6 @@ function createGatewayHandler(options = {}) {
         const publicKey = typeof body.publicKey === 'string' ? body.publicKey.trim() : '';
 
         if (!deviceId || !publicKey) {
-==== 第 50 页 ====
           errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
           return;
         }
@@ -2515,6 +2551,7 @@ function createGatewayHandler(options = {}) {
       // ─── Auth: Activate (complete registration with signature) ───
       if (request.method === 'POST' && url.pathname === '/api/auth/activate') {
         const body = await readJson(request);
+==== 第 51 页 ====
         const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
         const activationToken = typeof body.activationToken === 'string' ? body.activationToken.trim() : '';
         const signedChallenge = typeof body.signedChallenge === 'string' ? body.signedChallenge.trim() : '';
@@ -2551,7 +2588,6 @@ function createGatewayHandler(options = {}) {
         if (!deviceId) {
           errorResponse(response, 400, 'invalid_request', 'deviceId is required');
           return;
-==== 第 51 页 ====
         }
 
         if (!challengeLimiter.check(deviceId)) {
@@ -2566,6 +2602,7 @@ function createGatewayHandler(options = {}) {
         }
 
         jsonResponse(response, 200, result);
+==== 第 52 页 ====
         return;
       }
 
@@ -2602,7 +2639,6 @@ function createGatewayHandler(options = {}) {
 
       // ─── Auth: Refresh ───
       if (request.method === 'POST' && url.pathname === '/api/auth/refresh') {
-==== 第 52 页 ====
         const body = await readJson(request);
         const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
 
@@ -2617,6 +2653,7 @@ function createGatewayHandler(options = {}) {
         }
 
         const result = refreshAccessToken(refreshToken);
+==== 第 53 页 ====
         if (result.error) {
           errorResponse(response, 401, result.error, result.error);
           return;
@@ -2653,7 +2690,6 @@ function createGatewayHandler(options = {}) {
 
         if (!deviceId || !publicKey) {
           errorResponse(response, 400, 'invalid_request', 'deviceId and publicKey are required');
-==== 第 53 页 ====
           return;
         }
 
@@ -2668,6 +2704,7 @@ function createGatewayHandler(options = {}) {
         return;
       }
 
+==== 第 54 页 ====
       // ─── Auth: Me ───
       if (request.method === 'GET' && url.pathname === '/api/auth/me') {
         const auth = requireAuth(request, response);
@@ -2704,7 +2741,6 @@ function createGatewayHandler(options = {}) {
         if (!auth) return;
         jsonResponse(response, 200, { items: [PROJECT] });
         return;
-==== 第 54 页 ====
       }
 
       // ─── OpenCode Resumes ───
@@ -2719,6 +2755,7 @@ function createGatewayHandler(options = {}) {
         const items = allItems
           .filter((item) => deviceThreadIds.has(item.id))
           .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20);
+==== 第 55 页 ====
         jsonResponse(response, 200, { items });
         return;
       }
@@ -2755,7 +2792,6 @@ function createGatewayHandler(options = {}) {
         jsonResponse(response, 200, session);
         return;
       }
-==== 第 55 页 ====
 
       const opencodeResumeMatch = url.pathname.match(/^\/api\/opencode\/resumes\/([^/]+)\/resume$/);
       if (request.method === 'POST' && opencodeResumeMatch) {
@@ -2770,6 +2806,7 @@ function createGatewayHandler(options = {}) {
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
         const session = await opencodeClient.readResume({ threadId, directory });
+==== 第 56 页 ====
         recordSessionFiles(auth.deviceId, threadId, session.files);
         jsonResponse(response, 200, session);
         return;
@@ -2806,7 +2843,6 @@ function createGatewayHandler(options = {}) {
         }
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         const directory = deviceWorkspace(resolveFilesRoot(), auth.deviceId) ?? '';
-==== 第 56 页 ====
         await opencodeClient.renameResume({ threadId, name, directory });
         jsonResponse(response, 200, { ok: true });
         return;
@@ -2821,6 +2857,7 @@ function createGatewayHandler(options = {}) {
         if (threadId.trim().length === 0) {
           errorResponse(response, 400, 'invalid_request', 'Thread id is required');
           return;
+==== 第 57 页 ====
         }
         if (!requireThreadOwnership(response, auth.deviceId, threadId)) return;
         await opencodeClient.deleteResume({ threadId });
@@ -2857,7 +2894,6 @@ function createGatewayHandler(options = {}) {
 
         const projectId = createTaskMatch[1];
         if (projectId !== PROJECT.id) {
-==== 第 57 页 ====
           errorResponse(response, 404, 'project_not_found', 'Project not found');
           return;
         }
@@ -2872,6 +2908,7 @@ function createGatewayHandler(options = {}) {
           createdAt: new Date().toISOString()
         };
         tasks.set(taskId, task);
+==== 第 58 页 ====
         jsonResponse(response, 200, { taskId, status: task.status });
         return;
       }
@@ -2890,56 +2927,26 @@ function createGatewayHandler(options = {}) {
         return;
       }
 
-      // ─── Files: List（按设备汇总其会话产出的文件；登记式隔离，不依赖目录） ───
+      // ─── Files: List（本设备可见文件 = 登记文件 ∪ 设备专属工作区文件） ───
       if (request.method === 'GET' && url.pathname === '/api/files') {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
+        if (!resolveFilesRoot()) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
-        const root = path.resolve(filesRoot);
-        // 对外只暴露扁平文件名（basename），避免带 `/` 的文件名在客户端保存时报“文件名不合法”。
-        const seen = new Set();
-        const items = [];
-        for (const row of listSessionFileRecords(auth.deviceId)) {
-          const displayName = path.basename(row.name);
-          if (displayName.length === 0 || seen.has(displayName)) {
-            continue;
-          }
-==== 第 58 页 ====
-          const absolute = path.resolve(root, row.name);
-          if (absolute !== root && !absolute.startsWith(root + path.sep)) {
-            continue;
-          }
-          if (!isAllowedFile(absolute)) {
-            continue;
-          }
-          let stats;
-          try {
-            stats = fs.statSync(absolute);
-          } catch (error) {
-            continue;
-          }
-          if (!stats.isFile()) {
-            continue;
-          }
-          seen.add(displayName);
-          items.push({ name: displayName, size: stats.size, modifiedAt: stats.mtime.toISOString() });
-        }
-        items.sort((left, right) => left.name.localeCompare(right.name));
+        const items = collectDeviceFiles(auth.deviceId)
+          .map((file) => ({ name: file.name, size: file.size, modifiedAt: file.modifiedAt }));
         jsonResponse(response, 200, { items });
         return;
       }
 
-      // ─── Files: Download（仅限本设备会话登记过的文件，精确查表，杜绝越权/穿越） ───
+      // ─── Files: Download（仅限本设备可见文件：登记记录或设备专属工作区） ───
       const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
       if (request.method === 'GET' && downloadMatch) {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
+        if (!resolveFilesRoot()) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
@@ -2951,22 +2958,15 @@ function createGatewayHandler(options = {}) {
           requestedName = downloadMatch[1];
         }
 
-        // 支持按“完整相对路径”或“扁平文件名(basename)”回查本设备登记记录。
-        const records = listSessionFileRecords(auth.deviceId);
-        const record = records.find((row) => row.name === requestedName) ||
-          records.find((row) => path.basename(row.name) === requestedName);
-        if (!record) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
+        // 在“本设备可见文件”里按扁平文件名(basename)匹配，限定设备范围，杜绝越权/穿越。
 ==== 第 59 页 ====
-
-        const root = path.resolve(filesRoot);
-        const target = path.resolve(root, record.name);
-        if (target !== root && !target.startsWith(root + path.sep)) {
+        const wanted = path.basename(requestedName);
+        const match = collectDeviceFiles(auth.deviceId).find((file) => file.name === wanted);
+        if (!match) {
           errorResponse(response, 404, 'file_not_found', 'File does not exist');
           return;
         }
+        const target = match.path;
         if (!isAllowedFile(target)) {
           errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
           return;
