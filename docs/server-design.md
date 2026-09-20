@@ -157,8 +157,9 @@ openCode 实际在 `OPENCODE_WORKDIR` 下读写文件，且不按会话切换目
 
 - 读会话时从消息 parts（`file` part 的 filename；`write/edit/patch` 等工具 input/metadata 中的路径；bash 命令/输出中的路径）与会话 diff 提取文件路径。
 - 路径经 `session_files(thread_id, device_id, path, name, size, modified_at)` 登记，按设备归属。
-- `GET /api/files`：只列本设备登记过的文件，返回**扁平文件名（basename）**、size、modifiedAt。
-- `GET /api/files/{name}/download`：必须精确命中本设备登记记录（否则 404），流式下载。
+- `GET /api/files` 汇总**本设备可见文件**：已登记文件 ∪ 本设备专属工作区目录（`workspaces/<sha256(deviceId)>`）下实际存在的文件；返回**扁平文件名（basename）**、size、modifiedAt。
+- `GET /api/files/{name}/download` 在“本设备可见文件”集合中按 basename 匹配（否则 404），流式下载——限定设备范围，杜绝越权/穿越。
+- 这样即使某文件未被消息提取到（如脚本间接产出），只要它落在设备工作区里，也能被列出与下载。
 
 ## 12. 数据模型（SQLite）
 

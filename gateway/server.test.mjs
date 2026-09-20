@@ -714,6 +714,37 @@ describe('files', () => {
     }
   });
 
+  it('lists files physically present in the device workspace without registration', async () => {
+    const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-ws-'));
+    const originalRoot = process.env.FILES_ROOT;
+    process.env.FILES_ROOT = filesRoot;
+    const workspace = deviceWorkspace(filesRoot, 'dev-ws');
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(path.join(workspace, '奶蛙.png'), Buffer.from([1, 2, 3]));
+    writeFileSync(path.join(workspace, 'note.md'), 'hi');
+    writeFileSync(path.join(workspace, 'skip.exe'), 'x');
+    try {
+      await withServer(async (baseUrl) => {
+        const device = await activateDevice(baseUrl, { deviceId: 'dev-ws' });
+        const auth = { authorization: `Bearer ${device.accessToken}` };
+
+        const list = await (await fetch(`${baseUrl}/api/files`, { headers: auth })).json();
+        assert.deepEqual(list.items.map((item) => item.name).sort(), ['note.md', '奶蛙.png']);
+
+        const download = await fetch(`${baseUrl}/api/files/${encodeURIComponent('奶蛙.png')}/download`, { headers: auth });
+        assert.equal(download.status, 200);
+        assert.equal((await download.blob()).size, 3);
+      });
+    } finally {
+      if (originalRoot === undefined) {
+        delete process.env.FILES_ROOT;
+      } else {
+        process.env.FILES_ROOT = originalRoot;
+      }
+      rmSync(filesRoot, { recursive: true, force: true });
+    }
+  });
+
   it('requires auth and rejects unregistered / traversal downloads', async () => {
     const filesRoot = mkdtempSync(path.join(tmpdir(), 'airouter-files-test2-'));
     const originalRoot = process.env.FILES_ROOT;

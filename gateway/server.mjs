@@ -160,6 +160,85 @@ function recordSessionFiles(deviceId, threadId, paths) {
   }
 }
 
+// 工作区扫描时跳过的目录（避免遍历依赖/构建产物）。
+const SKIPPED_DIRS = new Set([
+  'node_modules', '.git', '.svn', '.hg', 'build', '.build',
+  'cache', 'dist', 'out', 'target', 'cert', 'keys', 'data'
+]);
+
+function walkAllowedFiles(dir, depth, onFile) {
+  if (depth < 0) {
+    return;
+  }
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || SKIPPED_DIRS.has(entry.name)) {
+        continue;
+      }
+      walkAllowedFiles(full, depth - 1, onFile);
+    } else if (entry.isFile() && !entry.name.startsWith('.') && isAllowedFile(entry.name)) {
+      onFile(full);
+    }
+  }
+}
+
+/**
+ * 汇总某设备可见的文件：已登记（session_files）的文件 ∪ 本设备专属工作区目录下的实际文件。
+ * 工作区目录按 sha256(deviceId) 生成，天然按设备隔离；两者都限定在设备范围内。
+ * 对外统一用扁平文件名（basename），按 basename 去重。
+ */
+function collectDeviceFiles(deviceId) {
+  const filesRoot = resolveFilesRoot();
+  if (!filesRoot) {
+    return [];
+  }
+  const root = path.resolve(filesRoot);
+  const byName = new Map();
+
+  const add = (absolute) => {
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+      return;
+    }
+    if (!isAllowedFile(absolute)) {
+      return;
+    }
+    let stats;
+    try {
+      stats = fs.statSync(absolute);
+    } catch (error) {
+      return;
+    }
+    if (!stats.isFile()) {
+      return;
+    }
+    const name = path.basename(absolute);
+    if (name.length === 0 || byName.has(name)) {
+      return;
+    }
+    byName.set(name, { name, path: absolute, size: stats.size, modifiedAt: stats.mtime.toISOString() });
+  };
+
+  // 1) 已登记文件
+  for (const row of listSessionFileRecords(deviceId)) {
+    add(path.resolve(root, row.name));
+  }
+
+  // 2) 本设备专属工作区目录下的实际文件
+  const workspace = deviceWorkspace(root, deviceId);
+  if (workspace) {
+    walkAllowedFiles(workspace, 4, add);
+  }
+
+  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function createGatewayHandler(options = {}) {
   const tasks = new Map();
   const opencodeClient = options.opencodeClient ?? new OpenCodeServerClient();
@@ -578,55 +657,26 @@ function createGatewayHandler(options = {}) {
         return;
       }
 
-      // ─── Files: List（按设备汇总其会话产出的文件；登记式隔离，不依赖目录） ───
+      // ─── Files: List（本设备可见文件 = 登记文件 ∪ 设备专属工作区文件） ───
       if (request.method === 'GET' && url.pathname === '/api/files') {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
+        if (!resolveFilesRoot()) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
-        const root = path.resolve(filesRoot);
-        // 对外只暴露扁平文件名（basename），避免带 `/` 的文件名在客户端保存时报“文件名不合法”。
-        const seen = new Set();
-        const items = [];
-        for (const row of listSessionFileRecords(auth.deviceId)) {
-          const displayName = path.basename(row.name);
-          if (displayName.length === 0 || seen.has(displayName)) {
-            continue;
-          }
-          const absolute = path.resolve(root, row.name);
-          if (absolute !== root && !absolute.startsWith(root + path.sep)) {
-            continue;
-          }
-          if (!isAllowedFile(absolute)) {
-            continue;
-          }
-          let stats;
-          try {
-            stats = fs.statSync(absolute);
-          } catch (error) {
-            continue;
-          }
-          if (!stats.isFile()) {
-            continue;
-          }
-          seen.add(displayName);
-          items.push({ name: displayName, size: stats.size, modifiedAt: stats.mtime.toISOString() });
-        }
-        items.sort((left, right) => left.name.localeCompare(right.name));
+        const items = collectDeviceFiles(auth.deviceId)
+          .map((file) => ({ name: file.name, size: file.size, modifiedAt: file.modifiedAt }));
         jsonResponse(response, 200, { items });
         return;
       }
 
-      // ─── Files: Download（仅限本设备会话登记过的文件，精确查表，杜绝越权/穿越） ───
+      // ─── Files: Download（仅限本设备可见文件：登记记录或设备专属工作区） ───
       const downloadMatch = url.pathname.match(/^\/api\/files\/(.+)\/download$/);
       if (request.method === 'GET' && downloadMatch) {
         const auth = requireAuth(request, response);
         if (!auth) return;
-        const filesRoot = resolveFilesRoot();
-        if (!filesRoot) {
+        if (!resolveFilesRoot()) {
           errorResponse(response, 500, 'files_root_unset', 'FILES_ROOT or OPENCODE_WORKDIR is not configured');
           return;
         }
@@ -638,21 +688,14 @@ function createGatewayHandler(options = {}) {
           requestedName = downloadMatch[1];
         }
 
-        // 支持按“完整相对路径”或“扁平文件名(basename)”回查本设备登记记录。
-        const records = listSessionFileRecords(auth.deviceId);
-        const record = records.find((row) => row.name === requestedName) ||
-          records.find((row) => path.basename(row.name) === requestedName);
-        if (!record) {
+        // 在“本设备可见文件”里按扁平文件名(basename)匹配，限定设备范围，杜绝越权/穿越。
+        const wanted = path.basename(requestedName);
+        const match = collectDeviceFiles(auth.deviceId).find((file) => file.name === wanted);
+        if (!match) {
           errorResponse(response, 404, 'file_not_found', 'File does not exist');
           return;
         }
-
-        const root = path.resolve(filesRoot);
-        const target = path.resolve(root, record.name);
-        if (target !== root && !target.startsWith(root + path.sep)) {
-          errorResponse(response, 404, 'file_not_found', 'File does not exist');
-          return;
-        }
+        const target = match.path;
         if (!isAllowedFile(target)) {
           errorResponse(response, 400, 'invalid_file', 'File name is invalid or not allowed');
           return;
