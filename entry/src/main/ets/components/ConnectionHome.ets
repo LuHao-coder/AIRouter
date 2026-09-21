@@ -1393,6 +1393,20 @@ export struct ConnectionHome {
     this.loadCardResumes(latestConnection !== undefined ? latestConnection : connection);
   }
 
+  // “会话历史”页的刷新：重新拉取本设备会话列表。
+  private refreshResumeListPage(): void {
+    if (this.resumesLoading) {
+      return;
+    }
+    const connection = this.selectedConnection();
+    if (connection.id.length === 0) {
+      this.resumesFeedback = '连接不可用';
+      return;
+    }
+    this.resumeActionFeedback = '正在刷新会话列表';
+    this.loadResumes(connection);
+  }
+
   private cardResumes(connection: SavedConnection): ResumeItem[] {
     if (this.resumesConnectionId === connection.id) {
       return this.resumes;
@@ -4073,14 +4087,6 @@ export struct ConnectionHome {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
 
-      Column() {
-        this.AddConnectionCircleButton()
-      }
-      .width('100%')
-      .height('8%')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-
       Blank()
         .width('100%')
         .height('8%')
@@ -4276,14 +4282,14 @@ export struct ConnectionHome {
 
         Blank()
 
-        Row() {
+        Button() {
           this.RefreshIcon(18, TERMINAL_ACCENT_COLOR)
         }
-        .width(32)
-        .height(18)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(VerticalAlign.Center)
-        .enabled(!this.isCardAutoConnecting(connection))
+        .width(36)
+        .height(32)
+        .borderRadius(8)
+        .backgroundColor(TERMINAL_TRANSPARENT_COLOR)
+        .accessibilityText('刷新会话列表')
         .onClick(() => {
           if (this.consumeSuppressedCardActionClick()) {
             return;
@@ -5053,6 +5059,19 @@ export struct ConnectionHome {
             .fontColor(TERMINAL_SECTION_TITLE_COLOR)
             .layoutWeight(1)
             .textAlign(TextAlign.Start)
+
+          Button() {
+            this.RefreshIcon(18, TERMINAL_ACCENT_COLOR)
+          }
+          .width(36)
+          .height(32)
+          .borderRadius(8)
+          .backgroundColor(TERMINAL_TRANSPARENT_COLOR)
+          .margin({ right: 8 })
+          .accessibilityText('刷新会话列表')
+          .onClick(() => {
+            this.refreshResumeListPage();
+          })
 
           this.DarkModeToggleButton()
         }
