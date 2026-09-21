@@ -1855,6 +1855,16 @@ export struct ConnectionHome {
           updatedAt: item.updatedAt
         };
       }));
+      // 若被重命名的正是当前打开的会话，同步会话页标题。
+      if (this.hasActiveResumeSession && this.activeResumeSession.threadId === resume.id) {
+        this.activeResumeSession = {
+          threadId: this.activeResumeSession.threadId,
+          title: name,
+          cwd: this.activeResumeSession.cwd,
+          status: this.activeResumeSession.status,
+          turns: this.activeResumeSession.turns
+        };
+      }
       this.resumeRenamingId = '';
       this.resumeRenameDraft = '';
       this.resumeActionMenuId = '';
@@ -4119,7 +4129,7 @@ export struct ConnectionHome {
         .alignItems(HorizontalAlign.Center)
         .translate({ x: this.connectionCardSwitchOffset(index), y: 0 })
         .scale({ x: this.connectionCardScale(index), y: this.connectionCardScale(index) })
-      }, (connection: SavedConnection) => connection.id)
+      }, (connection: SavedConnection) => `${connection.id}:${connection.name}:${connection.status}:${connection.lastUsedAt}`)
     }
     .width('100%')
     .layoutWeight(1)
@@ -4399,7 +4409,7 @@ export struct ConnectionHome {
                     }
                   })
               )
-            }, (resume: ResumeItem) => resume.id)
+            }, (resume: ResumeItem) => `${resume.id}:${resume.title}:${resume.status}:${resume.updatedAt}`)
           }
           .width('100%')
         }
@@ -4614,7 +4624,7 @@ export struct ConnectionHome {
           .height(6)
           .backgroundColor(index === this.activeConnectionPosition() ? TERMINAL_ACCENT_COLOR : TERMINAL_BUTTON_NEUTRAL_COLOR)
           .borderRadius(3)
-      }, (connection: SavedConnection) => connection.id)
+      }, (connection: SavedConnection) => `${connection.id}:${connection.name}:${connection.status}:${connection.lastUsedAt}`)
     }
     .height(20)
     .justifyContent(FlexAlign.Center)
@@ -5018,7 +5028,7 @@ export struct ConnectionHome {
                     }
                   })
               )
-            }, (resume: ResumeItem) => resume.id)
+            }, (resume: ResumeItem) => `${resume.id}:${resume.title}:${resume.status}:${resume.updatedAt}`)
           }
           .width('100%')
           .alignItems(HorizontalAlign.Center)
@@ -6195,7 +6205,7 @@ export struct ConnectionHome {
             .borderRadius(10)
             .border({ width: 1, color: TERMINAL_BORDER_COLOR })
           }
-        }, (file: ServerFile) => file.name)
+        }, (file: ServerFile) => `${file.name}:${file.size}:${file.modifiedAt}`)
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 4, bottom: 16 })
