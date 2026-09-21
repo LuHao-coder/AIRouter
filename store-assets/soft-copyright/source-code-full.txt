@@ -2953,6 +2953,7 @@ export struct ConnectionHome {
   private connectionSwiperController: SwiperController = new SwiperController();
   private waitingDotsTimer: number = -1;
   private resumeAutoRefreshTimer: number = -1;
+  private resumeAutoRefreshScheduledToken: number = -1;
   private resumeSilentRefreshFailures: number = 0;
   private resumeCenterNoticeTimer: number = -1;
   private resumePageTapTimer: number = -1;
@@ -5285,6 +5286,8 @@ export struct ConnectionHome {
     this.resumeAwaitingReplyBaselineId = this.activeResumeSession.turns.length > 0
       ? this.activeResumeSession.turns[this.activeResumeSession.turns.length - 1].id : '';
     this.resumeRefreshToken++;
+    // 令牌已更新：立即按新令牌重排轮询，确保等待期间持续刷新（清掉旧定时器）。
+    this.syncResumeAutoRefresh();
     this.resumeActionFeedback = '';
     this.startResumeWaitingIndicator();
     this.scrollActiveResumeToBottom();
@@ -5466,8 +5469,17 @@ export struct ConnectionHome {
   }
 
   private scheduleResumeAutoRefresh(): void {
-    if (this.resumeAutoRefreshTimer >= 0 || !this.hasActiveResumeSession || this.resumeStopRequested) {
+    if (!this.hasActiveResumeSession || this.resumeStopRequested) {
       return;
+    }
+
+    // 若已有定时器：令牌一致则保持；令牌已过期（如刚发过消息）则取消并重排，避免旧定时器自杀后无人接手。
+    if (this.resumeAutoRefreshTimer >= 0) {
+      if (this.resumeAutoRefreshScheduledToken === this.resumeRefreshToken) {
+        return;
+      }
+      clearTimeout(this.resumeAutoRefreshTimer);
+      this.resumeAutoRefreshTimer = -1;
     }
 
     const threadId = this.activeResumeSession.threadId;
@@ -5478,6 +5490,7 @@ export struct ConnectionHome {
     if (this.resumeSilentRefreshFailures > 0) {
       delay = Math.min(15000, delay * (this.resumeSilentRefreshFailures + 1));
     }
+    this.resumeAutoRefreshScheduledToken = refreshToken;
     this.resumeAutoRefreshTimer = setTimeout(() => {
       this.resumeAutoRefreshTimer = -1;
       this.refreshActiveResumeSilently(threadId, refreshToken);
@@ -5489,6 +5502,7 @@ export struct ConnectionHome {
       clearTimeout(this.resumeAutoRefreshTimer);
       this.resumeAutoRefreshTimer = -1;
     }
+    this.resumeAutoRefreshScheduledToken = -1;
     this.resumeSilentRefreshFailures = 0;
   }
 
@@ -5655,8 +5669,12 @@ export struct ConnectionHome {
   }
 
   private async refreshActiveResumeSilently(threadId: string, refreshToken: number): Promise<void> {
-    if (!this.hasActiveResumeSession || this.activeResumeSession.threadId !== threadId ||
-      this.resumeRefreshToken !== refreshToken) {
+    if (!this.hasActiveResumeSession || this.activeResumeSession.threadId !== threadId) {
+      return;
+    }
+    // 令牌已过期（例如刚发过消息）：重新按当前令牌排期，避免轮询断档。
+    if (this.resumeRefreshToken !== refreshToken) {
+      this.syncResumeAutoRefresh();
       return;
     }
 
