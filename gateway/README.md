@@ -97,9 +97,11 @@ POST   /api/opencode/resumes/{id}/archive
 POST   /api/opencode/resumes/{id}/name
 DELETE /api/opencode/resumes/{id}
 POST   /api/opencode/resumes/{id}/messages
-POST   /api/projects/{name}/tasks
-GET    /api/tasks/{id}
+POST   /api/projects/{name}/tasks    创建任务（预留占位，不真正执行）
+GET    /api/tasks/{id}               查询任务（预留占位，恒为 queued）
 ```
+
+> 注：任务接口为**预留占位**，不会真正触发执行；AI 交互请使用会话消息接口。
 
 查看真实 OpenCode 会话：
 

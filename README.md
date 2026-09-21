@@ -106,9 +106,11 @@ POST /api/opencode/resumes/{id}/messages  发送消息（异步返回）
 DELETE /api/opencode/resumes/{id}        删除会话
 GET  /api/files                    本设备会话产出的文件列表
 GET  /api/files/{name}/download    下载文件（仅本设备登记文件）
-POST /api/projects/{name}/tasks   创建任务
-GET  /api/tasks/{id}              查询任务
+POST /api/projects/{name}/tasks   创建任务（预留占位，不真正执行）
+GET  /api/tasks/{id}              查询任务（预留占位，恒为 queued）
 ```
+
+> 注：任务接口目前为**预留占位**，不会真正触发执行；App 的 AI 交互走会话消息接口（`/api/opencode/resumes/...`）。
 
 ## 测试
 
