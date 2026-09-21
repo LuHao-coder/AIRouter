@@ -742,6 +742,7 @@ export struct ConnectionHome {
   private connectionSwiperController: SwiperController = new SwiperController();
   private waitingDotsTimer: number = -1;
   private resumeAutoRefreshTimer: number = -1;
+  private resumeSilentRefreshFailures: number = 0;
   private resumeCenterNoticeTimer: number = -1;
   private resumePageTapTimer: number = -1;
   private cardActionClickSuppressTimer: number = -1;
@@ -2576,6 +2577,19 @@ export struct ConnectionHome {
     return this.activeResumeSession.turns;
   }
 
+  // ForEach 的 key 需随内容变化，否则 ArkUI 会复用子组件导致流式内容不刷新。
+  private resumeTurnRenderKey(turn: ResumeTurn): string {
+    let total = 0;
+    for (let i = 0; i < turn.items.length; i++) {
+      total += turn.items[i].text.length;
+    }
+    return `${turn.id}:${turn.status}:${turn.items.length}:${total}`;
+  }
+
+  private resumeItemRenderKey(item: ResumeContentItem): string {
+    return `${item.id}:${item.status}:${item.text.length}`;
+  }
+
   private resumeCanSubmitMessage(): boolean {
     return !this.resumeMessageSending && !this.resumeStarting && this.hasActiveResumeSession &&
       this.activeResumeSession.threadId.length > 0;
@@ -3248,7 +3262,11 @@ export struct ConnectionHome {
     const threadId = this.activeResumeSession.threadId;
     const refreshToken = this.resumeRefreshToken;
     const hasInProgress = this.resumeHasInProgressTurn(this.activeResumeSession) || this.resumeAwaitingReply;
-    const delay = hasInProgress ? 3000 : 10000;
+    let delay = hasInProgress ? 3000 : 10000;
+    // 连续失败时退避，避免网络抖动时高频重试；成功后归零。
+    if (this.resumeSilentRefreshFailures > 0) {
+      delay = Math.min(15000, delay * (this.resumeSilentRefreshFailures + 1));
+    }
     this.resumeAutoRefreshTimer = setTimeout(() => {
       this.resumeAutoRefreshTimer = -1;
       this.refreshActiveResumeSilently(threadId, refreshToken);
@@ -3260,6 +3278,7 @@ export struct ConnectionHome {
       clearTimeout(this.resumeAutoRefreshTimer);
       this.resumeAutoRefreshTimer = -1;
     }
+    this.resumeSilentRefreshFailures = 0;
   }
 
   private syncResumeAutoRefresh(): void {
@@ -3449,6 +3468,7 @@ export struct ConnectionHome {
 
       this.activeResumeSession = session;
       this.hasActiveResumeSession = true;
+      this.resumeSilentRefreshFailures = 0;
       this.updateConnectionStatus(connection, 'online');
       this.syncResumeAwaitingReply(session);
       if (!this.resumeHasInProgressTurn(session) && !this.resumeAwaitingReply) {
@@ -3475,7 +3495,9 @@ export struct ConnectionHome {
         return;
       }
 
-      this.stopResumeAutoRefresh();
+      // 非鉴权错误（网络抖动/超时/服务端错误）不终止轮询：退避后继续尝试。
+      this.resumeSilentRefreshFailures++;
+      this.syncResumeAutoRefresh();
     }
   }
 
@@ -5113,7 +5135,7 @@ export struct ConnectionHome {
           if (this.activeResumeTurns().length > 0) {
             ForEach(this.activeResumeTurns(), (turn: ResumeTurn) => {
               this.ResumeTurnBlock(turn)
-            }, (turn: ResumeTurn) => turn.id)
+            }, (turn: ResumeTurn) => this.resumeTurnRenderKey(turn))
           }
 
           if (this.pendingResumeMessage.length > 0) {
@@ -5306,7 +5328,7 @@ export struct ConnectionHome {
     Column({ space: 2 }) {
       ForEach(turn.items, (item: ResumeContentItem) => {
         this.ResumeContentItemView(item, this.resumeTurnItemTimestampText(turn, item))
-      }, (item: ResumeContentItem) => item.id)
+      }, (item: ResumeContentItem) => this.resumeItemRenderKey(item))
     }
     .width('100%')
   }
@@ -5379,7 +5401,7 @@ export struct ConnectionHome {
               color: TERMINAL_LINK_COLOR
             })
             .backgroundColor(segment.kind === RESUME_MD_BLOCK_CODE ? TERMINAL_CODE_BLOCK_BACKGROUND_COLOR : TERMINAL_TRANSPARENT_COLOR)
-        }, (segment: ResumeMdInlineSegment) => segment.id)
+        }, (segment: ResumeMdInlineSegment) => `${segment.id}:${segment.text.length}`)
       }
         .fontSize(this.resumeContentSize(14))
         .fontFamily(TERMINAL_FONT_FAMILY)
@@ -5439,7 +5461,7 @@ export struct ConnectionHome {
                 color: TERMINAL_LINK_COLOR
               })
               .backgroundColor(segment.kind === RESUME_MD_BLOCK_CODE ? TERMINAL_CODE_BLOCK_BACKGROUND_COLOR : TERMINAL_TRANSPARENT_COLOR)
-          }, (segment: ResumeMdInlineSegment) => segment.id)
+        }, (segment: ResumeMdInlineSegment) => `${segment.id}:${segment.text.length}`)
         }
           .fontSize(this.resumeContentSize(14))
           .fontFamily(TERMINAL_FONT_FAMILY)
@@ -5477,7 +5499,7 @@ export struct ConnectionHome {
               color: TERMINAL_LINK_COLOR
             })
             .backgroundColor(segment.kind === RESUME_MD_BLOCK_CODE ? TERMINAL_CODE_BLOCK_BACKGROUND_COLOR : TERMINAL_TRANSPARENT_COLOR)
-        }, (segment: ResumeMdInlineSegment) => segment.id)
+        }, (segment: ResumeMdInlineSegment) => `${segment.id}:${segment.text.length}`)
       }
         .fontSize(this.resumeContentSize(14))
         .fontFamily(TERMINAL_FONT_FAMILY)
@@ -5539,7 +5561,7 @@ export struct ConnectionHome {
           .width('100%')
           .textAlign(TextAlign.Start)
           .wordBreak(WordBreak.BREAK_ALL)
-      }, (codeLine: string, lineIndex: number) => `${block.id}-${lineIndex}`)
+      }, (codeLine: string, lineIndex: number) => `${block.id}-${lineIndex}-${codeLine.length}`)
     }
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 10 })
@@ -5565,7 +5587,7 @@ export struct ConnectionHome {
         } else {
           this.ResumeMarkdownParagraph(block, item)
         }
-      }, (block: ResumeMdBlock) => block.id)
+      }, (block: ResumeMdBlock) => `${block.id}:${block.text.length}:${block.inline.length}`)
     }
       .width('100%')
   }
@@ -5632,7 +5654,7 @@ export struct ConnectionHome {
             Span(segment.text)
               .fontColor(this.resumeSegmentTextColor(segment, item))
               .fontWeight(this.resumeSegmentFontWeight(segment))
-          }, (segment: ResumeTextSegment) => segment.id)
+          }, (segment: ResumeTextSegment) => `${segment.id}:${segment.text.length}`)
         }
           .fontSize(this.resumeContentSize(14))
           .fontFamily(TERMINAL_FONT_FAMILY)
