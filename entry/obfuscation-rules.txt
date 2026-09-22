@@ -17,7 +17,12 @@
 # -keep-property-name: specifies property names that you want to keep
 # -keep-global-name: specifies names that you want to keep in the global scope
 
--enable-property-obfuscation
+# AIRouter V1.0.0
+# 已关闭以下混淆项：
+# -enable-property-obfuscation：本应用大量使用 JSON.parse/JSON.stringify 与网关交互，
+#   属性名即 JSON 字段名，混淆后会导致字段读写失败。
+# -enable-filename-obfuscation：运行时通过字符串 'codex-router-cert.pem' 读取 rawfile，
+#   文件名混淆后会导致证书固定（certificate pinning）失效。
+# -enable-export-obfuscation：避免跨模块/导出符号被改写导致运行时异常。
 -enable-toplevel-obfuscation
--enable-filename-obfuscation
--enable-export-obfuscation
+-remove-log
