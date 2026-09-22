@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { ConnectionHome } from '../components/ConnectionHome';
 

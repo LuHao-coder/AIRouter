@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 export type ConnectionStatus = 'online' | 'offline' | 'needs_login' | 'unknown';
 export type ConnectionSwitchIntent = 'turn_on_and_show_resumes' | 'turn_off' | 'require_login';
 export type ResumeFeedbackAction = 'none' | 'relogin';

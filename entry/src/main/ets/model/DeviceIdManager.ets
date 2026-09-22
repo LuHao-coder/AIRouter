@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 

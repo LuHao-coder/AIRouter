@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 
 export class RateLimiter {

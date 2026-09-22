@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
@@ -45,7 +49,7 @@ const DEFAULT_PORT = 8443;
 
 const PROJECT = {
   id: 'codex-router',
-  name: 'AI Router',
+  name: 'AIRouter',
   defaultBranch: 'master',
   status: 'ready',
   permissions: ['task:create', 'task:read', 'task:write', 'diff:read', 'approval:review']
@@ -770,7 +774,7 @@ export function startGatewayServer(options = {}) {
     httpsServer.listen(port, host, () => {
       const address = httpsServer.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
-      console.log(`AI Router Gateway listening on https://${host}:${actualPort}`);
+      console.log(`AIRouter Gateway listening on https://${host}:${actualPort}`);
     });
     servers.push(httpsServer);
   }
@@ -779,7 +783,7 @@ export function startGatewayServer(options = {}) {
   httpServer.listen(httpPort, host, () => {
     const address = httpServer.address();
     const actualPort = typeof address === 'object' && address ? address.port : httpPort;
-    console.log(`AI Router Gateway listening on http://${host}:${actualPort}`);
+    console.log(`AIRouter Gateway listening on http://${host}:${actualPort}`);
   });
   servers.push(httpServer);
 

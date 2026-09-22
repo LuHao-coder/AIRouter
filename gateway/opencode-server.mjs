@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { isAllowedFile } from './file-service.mjs';

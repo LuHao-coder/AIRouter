@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 

@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { common, ConfigurationConstant, Want } from '@kit.AbilityKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';

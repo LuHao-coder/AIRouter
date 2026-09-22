@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { rcp } from '@kit.RemoteCommunicationKit';
 
 const DEFAULT_RESUME_CWD: string = '~';

@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 // 固定服务器配置：App 只能连接该服务器，地址不可修改、连接不可删除。
 // 注意：更改此处需重新构建并上架（证书固定 + 硬编码地址）。
 export const DEFAULT_GATEWAY_SCHEME: string = 'https';
