@@ -113,7 +113,7 @@ GET  /api/auth/me                                                 -> { deviceId,
 `GET /api/projects` 返回服务端配置的固定项目：
 
 ```json
-{ "items": [ { "id": "codex-router", "name": "AI Router", "defaultBranch": "master", "status": "ready", "permissions": ["task:create", "task:read", "task:write", "diff:read", "approval:review"] } ] }
+{ "items": [ { "id": "codex-router", "name": "AIRouter", "defaultBranch": "master", "status": "ready", "permissions": ["task:create", "task:read", "task:write", "diff:read", "approval:review"] } ] }
 ```
 
 ## 8. OpenCode 适配层
@@ -264,7 +264,7 @@ systemd 单元（`/etc/systemd/system/codex-router.service`）：
 
 ```ini
 [Unit]
-Description=Codex Router Gateway
+Description=AIRouter Gateway
 After=network.target
 
 [Service]
