@@ -1,3 +1,7 @@
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { rcp } from '@kit.RemoteCommunicationKit';
 
 const DEFAULT_RESUME_CWD: string = '~';
@@ -942,6 +946,10 @@ function ensureSuccessCode(statusCode: number): void {
     throw new GatewayHttpError(statusCode);
   }
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 // 固定服务器配置：App 只能连接该服务器，地址不可修改、连接不可删除。
 // 注意：更改此处需重新构建并上架（证书固定 + 硬编码地址）。
 export const DEFAULT_GATEWAY_SCHEME: string = 'https';
@@ -949,6 +957,10 @@ export const DEFAULT_GATEWAY_HOST: string = '8.153.174.88';
 export const DEFAULT_GATEWAY_PORT: number = 8443;
 export const DEFAULT_GATEWAY_DISPLAY: string = `${DEFAULT_GATEWAY_HOST}:${DEFAULT_GATEWAY_PORT}`;
 export const DEFAULT_GATEWAY_NAME: string = 'AIRouter';
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 
@@ -998,6 +1010,10 @@ export async function getDeviceId(context: common.Context): Promise<string> {
 
   return newId;
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { huks } from '@kit.UniversalKeystoreKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 
@@ -1168,6 +1184,10 @@ export async function signChallenge(challenge: string): Promise<string> {
   const sig = await signData(data);
   return uint8ArrayToBase64(sig);
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { huks } from '@kit.UniversalKeystoreKit';
 import { buffer, util } from '@kit.ArkTS';
 
@@ -1300,6 +1320,10 @@ export async function decryptConnectionStore(storedValue: string): Promise<strin
     return null;
   }
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 export type ConnectionStatus = 'online' | 'offline' | 'needs_login' | 'unknown';
 export type ConnectionSwitchIntent = 'turn_on_and_show_resumes' | 'turn_off' | 'require_login';
 export type ResumeFeedbackAction = 'none' | 'relogin';
@@ -1939,6 +1963,10 @@ export function shouldShowAgentOutputDot(role: string): boolean {
   const normalizedRole = role.trim().toLowerCase();
   return normalizedRole === 'assistant' || normalizedRole === 'agent';
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import {
   canAddConnection,
   ConnectionStatus,
@@ -2209,6 +2237,10 @@ function uniqueConnectionHosts(connections: SavedConnection[]): SavedConnection[
 
   return result;
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { common, ConfigurationConstant, Want } from '@kit.AbilityKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
@@ -8445,6 +8477,10 @@ export struct ConnectionHome {
     .scrollBar(BarState.Auto)
   }
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { ConnectionHome } from '../components/ConnectionHome';
 
@@ -8515,6 +8551,10 @@ struct Index {
     .height('100%')
   }
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
@@ -8700,6 +8740,10 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', 'Keyboard height changed by %{public}s: %{public}d', source, nextHeight);
   }
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BackupExtensionAbility, BundleVersion } from '@kit.CoreFileKit';
 
@@ -8715,7 +8759,11 @@ export default class EntryBackupAbility extends BackupExtensionAbility {
     hilog.info(DOMAIN, 'testTag', 'onRestore ok %{public}s', JSON.stringify(bundleVersion));
     await Promise.resolve();
   }
-}import crypto from 'node:crypto';
+}/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import {
   getRegistrationCodeByDevice,
@@ -8987,6 +9035,10 @@ export {
   logoutDevice,
   cleanupExpiredNonces,
 };
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
@@ -9286,6 +9338,10 @@ export function cleanupExpiredNonces() {
   conn.prepare('DELETE FROM activation_nonces WHERE expires_at < ?').run(now);
   conn.prepare('DELETE FROM login_nonces WHERE expires_at < ?').run(now);
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -9411,6 +9467,10 @@ export function isAllowedFile(name) {
 export function mimeTypeForFile(name) {
   return MIME_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { isAllowedFile } from './file-service.mjs';
@@ -10102,6 +10162,10 @@ function runCommand(spawnCommand, command, args, options = {}) {
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 
 export class RateLimiter {
@@ -10176,6 +10240,10 @@ export const challengeLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
 export const verifyLimiter = new RateLimiter(FIFTEEN_MINUTES, 5);
 export const refreshLimiter = new RateLimiter(FIFTEEN_MINUTES, 10);
 export const reregisterLimiter = new RateLimiter(ONE_HOUR, 3);
+/*
+ * AIRouter V1.0.0
+ * 著作权人：陆豪
+ */
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
@@ -10223,7 +10291,7 @@ const DEFAULT_PORT = 8443;
 
 const PROJECT = {
   id: 'codex-router',
-  name: 'AI Router',
+  name: 'AIRouter',
   defaultBranch: 'master',
   status: 'ready',
   permissions: ['task:create', 'task:read', 'task:write', 'diff:read', 'approval:review']
@@ -10948,7 +11016,7 @@ export function startGatewayServer(options = {}) {
     httpsServer.listen(port, host, () => {
       const address = httpsServer.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
-      console.log(`AI Router Gateway listening on https://${host}:${actualPort}`);
+      console.log(`AIRouter Gateway listening on https://${host}:${actualPort}`);
     });
     servers.push(httpsServer);
   }
@@ -10957,7 +11025,7 @@ export function startGatewayServer(options = {}) {
   httpServer.listen(httpPort, host, () => {
     const address = httpServer.address();
     const actualPort = typeof address === 'object' && address ? address.port : httpPort;
-    console.log(`AI Router Gateway listening on http://${host}:${actualPort}`);
+    console.log(`AIRouter Gateway listening on http://${host}:${actualPort}`);
   });
   servers.push(httpServer);
 
